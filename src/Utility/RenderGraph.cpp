@@ -22,6 +22,14 @@ std::map<std::string, std::vector<std::shared_ptr<Buffer>>> GraphPass::getVertex
 
 std::map<std::string, std::vector<std::shared_ptr<Image>>> GraphPass::getTextureInputs() { return _textureInputs; }
 
+void GraphPass::addRenderExecution(std::function<void()> renderExecution) {
+  _renderExecution.push_back(renderExecution);
+}
+
+void GraphPass::execute() {
+  for (auto& render : _renderExecution) render();
+}
+
 void GraphPass::addStorageInput(std::string name, std::vector<std::shared_ptr<Buffer>> buffers) {
   _storageInputs[name] = buffers;
 }
@@ -40,18 +48,17 @@ void GraphPass::addTextureInput(std::string name, std::vector<std::shared_ptr<Im
 
 void GraphPass::setDepthTarget(std::string name, std::shared_ptr<Image> image) { _depthTarget[name] = image; }
 
+void GraphPass::setEnd(bool end) { _end = end; }
+
+bool GraphPass::getEnd() { return _end; }
+
 RenderGraph::RenderGraph(std::shared_ptr<Swapchain> swapchain) { _swapchain = swapchain; }
 
-std::shared_ptr<GraphPass> RenderGraph::getPass(std::string name) {
-  if (_passes.find(name) != _passes.end()) {
-    return _passes[name];
+std::shared_ptr<GraphPass> RenderGraph::getPass(std::string name, GraphPassStage stage) {
+  if (_passes.find(name) == _passes.end()) {
+    _passes[name] = std::make_shared<GraphPass>(stage);
   }
 
-  return nullptr;
-}
-
-std::shared_ptr<GraphPass> RenderGraph::addPass(std::string name, GraphPassStage stage) {
-  _passes[name] = std::make_shared<GraphPass>(stage);
   return _passes[name];
 }
 
@@ -112,35 +119,35 @@ void RenderGraph::calculate() {
     return "";
   };
 
-  std::map<std::shared_ptr<GraphPass>, std::vector<std::shared_ptr<GraphPass>>> passes;
+  std::pair<std::string, std::shared_ptr<GraphPass>> root{"", nullptr};
   for (auto [key, value] : _passes) {
-    bool root = false;
-    for (auto [name, resource] : value->getColorTargets()) {
-      for (auto& imageView : _swapchain->getImageViews()) {
-        if (std::find(resource.begin(), resource.end(), imageView->getImage()) != resource.end()) {
-          root = true;
-        }
+    if (value->getEnd()) root = {key, value};
+  }
+  std::map<std::shared_ptr<GraphPass>, std::vector<std::shared_ptr<GraphPass>>> passes;
+  auto passesBackup = _passes;
+  // we should for every root pass run traversal process
+  std::function<void(std::string name, std::shared_ptr<GraphPass>)> traverse = [&](std::string name,
+                                                                                   std::shared_ptr<GraphPass> node) {
+    passesBackup.erase(name);
+    _passesOrdered.push_back(node);
+    std::cout << name << std::endl;
+    auto dependencies = getDependencies(name);
+    for (auto dependency : dependencies) {
+      // we want to find who writes to this texture, so we are looking for color target or depth target
+      auto targetName = findColorTarget(passesBackup, dependency);
+      if (targetName.empty() == false) {
+        traverse(targetName, _passes[targetName]);
       }
     }
+  };
 
-    auto passesBackup = _passes;
-    // we should for every root pass run traversal process
-    std::function<void(std::string name, std::shared_ptr<GraphPass>)> traverse = [&](std::string name,
-                                                                                     std::shared_ptr<GraphPass> node) {
-      passesBackup.erase(name);
-      std::cout << name << std::endl;
-      auto dependencies = getDependencies(name);
-      for (auto dependency : dependencies) {
-        // we want to find who writes to this texture, so we are looking for color target or depth target
-        auto targetName = findColorTarget(passesBackup, dependency);
-        if (targetName.empty() == false) {
-          traverse(targetName, _passes[targetName]);
-        }
-      }
-    };
+  if (root.second) {
+    traverse(root.first, root.second);
+  }
+}
 
-    if (root) {
-      traverse(key, value);
-    }
+void RenderGraph::render() {
+  for (auto& pass : _passesOrdered) {
+    pass->execute();
   }
 }

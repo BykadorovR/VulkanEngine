@@ -42,9 +42,9 @@ class Core {
   std::shared_ptr<RenderPass> _renderPassShadowMap, _renderPassGraphic, _renderPassDebug, _renderPassBlur;
   std::vector<std::shared_ptr<Framebuffer>> _frameBufferGraphic, _frameBufferDebug;
   std::shared_ptr<CommandPool> _commandPoolRender, _commandPoolApplication, _commandPoolParticleSystem,
-      _commandPoolPostprocessing, _commandPoolGUI;
+      _commandPoolBloom, _commandPoolPostprocessing, _commandPoolGUI;
   std::vector<std::shared_ptr<CommandBuffer>> _commandBufferRender, _commandBufferApplication,
-      _commandBufferParticleSystem, _commandBufferPostprocessing, _commandBufferGUI;
+      _commandBufferParticleSystem, _commandBufferBloom, _commandBufferPostprocessing, _commandBufferGUI;
 
   std::vector<std::shared_ptr<Semaphore>> _semaphoreImageAvailable, _semaphoreRenderFinished;
   std::vector<std::shared_ptr<Semaphore>> _semaphoreParticleSystem, _semaphorePostprocessing, _semaphoreGUI;
@@ -68,7 +68,7 @@ class Core {
   std::vector<std::shared_ptr<Animation>> _animations;
   std::map<std::shared_ptr<Animation>, std::future<void>> _futureAnimationUpdate;
 
-  std::vector<std::shared_ptr<ParticleSystem>> _particleSystem;
+  std::vector<std::shared_ptr<ParticleSystem>> _particleSystems;
   std::shared_ptr<Postprocessing> _postprocessing;
   std::shared_ptr<Skybox> _skybox = nullptr;
   std::shared_ptr<BlurCompute> _blurCompute;
@@ -81,22 +81,23 @@ class Core {
   std::vector<std::vector<VkSubmitInfo>> _frameSubmitInfoPreCompute, _frameSubmitInfoPostCompute,
       _frameSubmitInfoGraphic, _frameSubmitInfoDebug;
   std::mutex _frameSubmitMutexGraphic;
-  bool _recalculateRenderGraph = false;
+  bool _recalculateRenderGraph = true;
 
   void _drawShadowMapDirectional(int index);
   void _drawShadowMapPoint(int index, int face);
-  void _computeParticles();
+  void _computeParticles(int index);
   void _drawShadowMapDirectionalBlur(std::shared_ptr<DirectionalShadow> directionalShadow);
   void _drawShadowMapPointBlur(std::shared_ptr<PointShadow> pointShadow, int face);
-  void _computePostprocessing(int swapchainImageIndex);
-  void _debugVisualizations(int swapchainImageIndex);
+  void _computeBloom();
+  void _computePostprocessing();
+  void _debugVisualizations();
   void _initializeTextures();
   void _initializeFramebuffer();
   void _renderGraphic();
 
-  VkResult _getImageIndex(uint32_t* imageIndex);
-  void _displayFrame(uint32_t* imageIndex);
-  void _drawFrame(int imageIndex);
+  VkResult _getImageIndex();
+  void _displayFrame();
+  void _drawFrame();
   void _clearUnusedData();
   void _reset();
 

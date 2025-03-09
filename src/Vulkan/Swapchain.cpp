@@ -56,6 +56,8 @@ void Swapchain::_destroy() { vkb::destroy_swapchain(_swapchain); }
 
 const vkb::Swapchain& Swapchain::getSwapchain() { return _swapchain; }
 
+uint32_t& Swapchain::getSwapchainIndex() { return _swapchainIndex; }
+
 void Swapchain::reset() {
   if (vkDeviceWaitIdle(_engineState->getDevice()->getDevice().device) != VK_SUCCESS)
     throw std::runtime_error("failed to create reset swap chain!");

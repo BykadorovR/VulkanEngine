@@ -18,6 +18,8 @@ class GraphPass {
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> _storageOutputs;
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> _vertexBufferInputs;
   std::map<std::string, std::vector<std::shared_ptr<Image>>> _textureInputs;
+  std::vector<std::function<void()>> _renderExecution;
+  bool _end = false;
 
  public:
   GraphPass(GraphPassStage stage);
@@ -33,6 +35,8 @@ class GraphPass {
   // handle vertices
   void addVertexBufferInput(std::string name, std::vector<std::shared_ptr<Buffer>> buffers);
   void addIndexBufferInput();
+  // mark the last vertex in render graph
+  void setEnd(bool end);
 
   GraphPassStage getStage();
   std::map<std::string, std::vector<std::shared_ptr<Image>>> getColorTargets();
@@ -41,21 +45,22 @@ class GraphPass {
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> getStorageOutputs();
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> getVertexBufferInputs();
   std::map<std::string, std::vector<std::shared_ptr<Image>>> getTextureInputs();
-
+  bool getEnd();
   // set function that does render pass work
-  void setRenderExecution();
+  void addRenderExecution(std::function<void()> renderExecution);
+  void execute();
 };
 
 class RenderGraph {
  private:
   std::map<std::string, std::shared_ptr<GraphPass>> _passes;
+  std::vector<std::shared_ptr<GraphPass>> _passesOrdered;
   std ::shared_ptr<Swapchain> _swapchain;
 
  public:
   RenderGraph(std::shared_ptr<Swapchain> swapchain);
-  std::shared_ptr<GraphPass> getPass(std::string name);
-  std::shared_ptr<GraphPass> addPass(std::string name, GraphPassStage stage);
+  std::shared_ptr<GraphPass> getPass(std::string name, GraphPassStage stage);
   void calculate();
-  void render();
   void print();
+  void render();
 };
