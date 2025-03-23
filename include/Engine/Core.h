@@ -83,17 +83,20 @@ class Core {
   std::mutex _frameSubmitMutexGraphic;
   bool _recalculateRenderGraph = true;
 
-  void _drawShadowMapDirectional(int index);
-  void _drawShadowMapPoint(int index, int face);
-  void _computeParticles(int index);
-  void _drawShadowMapDirectionalBlur(std::shared_ptr<DirectionalShadow> directionalShadow);
-  void _drawShadowMapPointBlur(std::shared_ptr<PointShadow> pointShadow, int face);
-  void _computeBloom();
-  void _computePostprocessing();
-  void _debugVisualizations();
+  void _drawShadowMapDirectional(int index, std::shared_ptr<CommandBuffer> commandBuffer);
+  void _drawShadowMapPoint(int index, int face, std::shared_ptr<CommandBuffer> commandBuffer);
+  void _computeParticles(int index, std::shared_ptr<CommandBuffer> commandBuffer);
+  void _drawShadowMapDirectionalBlur(std::shared_ptr<DirectionalShadow> directionalShadow,
+                                     std::shared_ptr<CommandBuffer> commandBuffer);
+  void _drawShadowMapPointBlur(std::shared_ptr<PointShadow> pointShadow,
+                               int face,
+                               std::shared_ptr<CommandBuffer> commandBuffer);
+  void _computeBloom(std::shared_ptr<CommandBuffer> commandBuffer);
+  void _computePostprocessing(std::shared_ptr<CommandBuffer> commandBuffer);
+  void _debugVisualizations(std::shared_ptr<CommandBuffer> commandBuffer);
+  void _renderGraphic(std::shared_ptr<CommandBuffer> commandBuffer);
   void _initializeTextures();
   void _initializeFramebuffer();
-  void _renderGraphic();
 
   VkResult _getImageIndex();
   void _displayFrame();
