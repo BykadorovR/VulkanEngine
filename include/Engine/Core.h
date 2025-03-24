@@ -41,17 +41,10 @@ class Core {
   // for compute render pass isn't needed
   std::shared_ptr<RenderPass> _renderPassShadowMap, _renderPassGraphic, _renderPassDebug, _renderPassBlur;
   std::vector<std::shared_ptr<Framebuffer>> _frameBufferGraphic, _frameBufferDebug;
-  std::shared_ptr<CommandPool> _commandPoolRender, _commandPoolApplication, _commandPoolParticleSystem,
-      _commandPoolBloom, _commandPoolPostprocessing, _commandPoolGUI;
-  std::vector<std::shared_ptr<CommandBuffer>> _commandBufferRender, _commandBufferApplication,
-      _commandBufferParticleSystem, _commandBufferBloom, _commandBufferPostprocessing, _commandBufferGUI;
-
-  std::vector<std::shared_ptr<Semaphore>> _semaphoreImageAvailable, _semaphoreRenderFinished;
-  std::vector<std::shared_ptr<Semaphore>> _semaphoreParticleSystem, _semaphorePostprocessing, _semaphoreGUI;
+  std::shared_ptr<CommandPool> _commandPoolApplication;
+  std::vector<std::shared_ptr<CommandBuffer>> _commandBufferApplication;
   std::vector<std::shared_ptr<Semaphore>> _semaphoreApplicationReady;
   std::map<int, bool> _waitSemaphoreApplicationReady;
-
-  std::vector<std::shared_ptr<Fence>> _fenceInFlight;
 
   std::vector<std::shared_ptr<Texture>> _textureRender, _textureBlurIn, _textureBlurOut;
   std::set<std::shared_ptr<Material>> _materials;

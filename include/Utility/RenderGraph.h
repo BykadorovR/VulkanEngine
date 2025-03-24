@@ -72,6 +72,7 @@ class RenderGraph {
   std::shared_ptr<BS::thread_pool> _threadPool;
   // special semaphores
   std::vector<std::shared_ptr<Semaphore>> _semaphoreRenderFinished, _semaphoreImageAvailable;
+  std::vector<std::shared_ptr<Fence>> _fenceInFlight;
 
  public:
   RenderGraph(std::shared_ptr<Swapchain> swapchain,
@@ -80,6 +81,7 @@ class RenderGraph {
   std::shared_ptr<GraphPass> getPass(std::string name, GraphPassStage stage);
   std::vector<std::shared_ptr<Semaphore>> getSemaphoreRenderFinished();
   std::vector<std::shared_ptr<Semaphore>> getSemaphoreImageAvailable();
+  std::vector<std::shared_ptr<Fence>> getFenceInFlight();
   void calculate();
   void print();
   void render();

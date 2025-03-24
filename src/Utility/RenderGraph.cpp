@@ -4,12 +4,17 @@ GraphPass::GraphPass(GraphPassStage stage, std::shared_ptr<EngineState> engineSt
   _stage = stage;
   _engineState = engineState;
 
-  _commandPool = std::make_shared<CommandPool>(vkb::QueueType::compute, _engineState->getDevice());
+  switch (stage) {
+    case GraphPassStage::GRAPHIC:
+      _commandPool = std::make_shared<CommandPool>(vkb::QueueType::graphics, _engineState->getDevice());
+      break;
+    case GraphPassStage::COMPUTE:
+      _commandPool = std::make_shared<CommandPool>(vkb::QueueType::compute, _engineState->getDevice());
+      break;
+  };
   _commandBuffers.resize(_engineState->getSettings()->getMaxFramesInFlight());
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
     _commandBuffers[i] = std::make_shared<CommandBuffer>(_commandPool, _engineState->getDevice());
-  }
-  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
   }
 }
 
@@ -88,12 +93,15 @@ RenderGraph::RenderGraph(std::shared_ptr<Swapchain> swapchain,
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
     _semaphoreRenderFinished.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
     _semaphoreImageAvailable.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
+    _fenceInFlight.push_back(std::make_shared<Fence>(_engineState->getDevice()));
   }
 }
 
 std::vector<std::shared_ptr<Semaphore>> RenderGraph::getSemaphoreRenderFinished() { return _semaphoreRenderFinished; }
 
 std::vector<std::shared_ptr<Semaphore>> RenderGraph::getSemaphoreImageAvailable() { return _semaphoreImageAvailable; }
+
+std::vector<std::shared_ptr<Fence>> RenderGraph::getFenceInFlight() { return _fenceInFlight; }
 
 std::shared_ptr<GraphPass> RenderGraph::getPass(std::string name, GraphPassStage stage) {
   if (_passes.find(name) == _passes.end()) {
@@ -251,50 +259,70 @@ void RenderGraph::render() {
   }
 
   std::vector<VkCommandBuffer> commandBufferSubmit;
-  std::optional<GraphPassStage> currentStage = std::nullopt;
+  std::vector<VkSemaphore> signalSemaphores;
+  std::vector<VkSemaphore> waitSemaphores;
+  std::vector<VkPipelineStageFlags> waitStages;
+  GraphPassStage previousStage = renderFutures[0].first->getStage();
   for (int i = 0; i < renderFutures.size(); i++) {
     std::shared_ptr<GraphPass> graphPass = renderFutures[i].first;
-    if (currentStage.has_value() == false) currentStage = graphPass->getStage();
-
-    commandBufferSubmit.push_back(graphPass->getCommandBuffers()[frameInFlight]->getCommandBuffer());
     std::future<void> renderFuture = std::move(renderFutures[i].second);
     if (renderFuture.valid()) renderFuture.get();
-
-    // stage change
-    if (currentStage != graphPass->getStage()) {
-      std::vector<VkSemaphore> signalSemaphores;
-      for (auto& semaphores : graphPass->getSignalSemaphores())
-        signalSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
-      std::vector<VkSemaphore> waitSemaphores;
-      std::vector<VkPipelineStageFlags> waitStages;
-      for (auto& semaphores : graphPass->getWaitSemaphores()) {
-        switch (graphPass->getStage()) {
-          case GraphPassStage::COMPUTE:
-            waitStages.push_back(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-            break;
-          case GraphPassStage::GRAPHIC:
-            waitStages.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-            break;
-          case GraphPassStage::TRANSFER:
-            waitStages.push_back(VK_PIPELINE_STAGE_TRANSFER_BIT);
-            break;
-        };
-        waitSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
-      }
-
+    // stage change or last iteration
+    if (previousStage != graphPass->getStage()) {
       // submit
-      VkSubmitInfo submitInfoCompute{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                     .waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
-                                     .pWaitSemaphores = waitSemaphores.data(),
-                                     .pWaitDstStageMask = waitStages.data(),
-                                     .commandBufferCount = (uint32_t)commandBufferSubmit.size(),
-                                     .pCommandBuffers = commandBufferSubmit.data(),
-                                     .signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
-                                     .pSignalSemaphores = signalSemaphores.data()};
-      vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::compute), 1, &submitInfoCompute,
-                    VK_NULL_HANDLE);
+      VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                              .waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
+                              .pWaitSemaphores = waitSemaphores.data(),
+                              .pWaitDstStageMask = waitStages.data(),
+                              .commandBufferCount = (uint32_t)commandBufferSubmit.size(),
+                              .pCommandBuffers = commandBufferSubmit.data(),
+                              .signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
+                              .pSignalSemaphores = signalSemaphores.data()};
+      if (previousStage == GraphPassStage::COMPUTE)
+        vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::compute), 1, &submitInfo, VK_NULL_HANDLE);
+      else
+        vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo, VK_NULL_HANDLE);
       //
       commandBufferSubmit.clear();
+      signalSemaphores.clear();
+      waitSemaphores.clear();
+      waitStages.clear();
     }
+
+    commandBufferSubmit.push_back(graphPass->getCommandBuffers()[frameInFlight]->getCommandBuffer());
+    for (auto& semaphores : graphPass->getSignalSemaphores())
+      signalSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
+
+    for (auto& semaphores : graphPass->getWaitSemaphores()) {
+      switch (graphPass->getStage()) {
+        case GraphPassStage::COMPUTE:
+          waitStages.push_back(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+          break;
+        case GraphPassStage::GRAPHIC:
+          waitStages.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+          break;
+        case GraphPassStage::TRANSFER:
+          waitStages.push_back(VK_PIPELINE_STAGE_TRANSFER_BIT);
+          break;
+      };
+      waitSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
+    }
+
+    previousStage = graphPass->getStage();
   }
+  // submit remaining commands
+  VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                          .waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
+                          .pWaitSemaphores = waitSemaphores.data(),
+                          .pWaitDstStageMask = waitStages.data(),
+                          .commandBufferCount = (uint32_t)commandBufferSubmit.size(),
+                          .pCommandBuffers = commandBufferSubmit.data(),
+                          .signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
+                          .pSignalSemaphores = signalSemaphores.data()};
+  if (previousStage == GraphPassStage::COMPUTE)
+    vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::compute), 1, &submitInfo,
+                  _fenceInFlight[frameInFlight]->getFence());
+  else
+    vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo,
+                  _fenceInFlight[frameInFlight]->getFence());
 }

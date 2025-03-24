@@ -29,16 +29,6 @@ Core::Core(std::shared_ptr<Settings> settings) {
   _engineState->getDebugUtils()->setName("Queue compute", VkObjectType::VK_OBJECT_TYPE_QUEUE,
                                          _engineState->getDevice()->getQueue(vkb::QueueType::compute));
   {
-    _commandPoolRender = std::make_shared<CommandPool>(vkb::QueueType::graphics, _engineState->getDevice());
-    _commandBufferRender.resize(settings->getMaxFramesInFlight());
-    for (int i = 0; i < settings->getMaxFramesInFlight(); i++) {
-      _commandBufferRender[i] = std::make_shared<CommandBuffer>(_commandPoolRender, _engineState->getDevice());
-      _engineState->getDebugUtils()->setName("Command buffer for render graphic " + std::to_string(i),
-                                             VkObjectType::VK_OBJECT_TYPE_COMMAND_BUFFER,
-                                             _commandBufferRender[i]->getCommandBuffer());
-    }
-  }
-  {
     _commandPoolApplication = std::make_shared<CommandPool>(vkb::QueueType::graphics, _engineState->getDevice());
     _commandBufferApplication.resize(settings->getMaxFramesInFlight());
     for (int i = 0; i < settings->getMaxFramesInFlight(); i++) {
@@ -47,46 +37,6 @@ Core::Core(std::shared_ptr<Settings> settings) {
       _engineState->getDebugUtils()->setName("Command buffer for appplication",
                                              VkObjectType::VK_OBJECT_TYPE_COMMAND_BUFFER,
                                              _commandBufferApplication[i]->getCommandBuffer());
-    }
-  }
-  {
-    _commandPoolParticleSystem = std::make_shared<CommandPool>(vkb::QueueType::compute, _engineState->getDevice());
-    _commandBufferParticleSystem.resize(settings->getMaxFramesInFlight());
-    for (int i = 0; i < settings->getMaxFramesInFlight(); i++) {
-      _commandBufferParticleSystem[i] = std::make_shared<CommandBuffer>(_commandPoolParticleSystem,
-                                                                        _engineState->getDevice());
-      _engineState->getDebugUtils()->setName("Command buffer for particle system",
-                                             VkObjectType::VK_OBJECT_TYPE_COMMAND_BUFFER,
-                                             _commandBufferParticleSystem[i]->getCommandBuffer());
-    }
-  }
-  {
-    _commandPoolBloom = std::make_shared<CommandPool>(vkb::QueueType::compute, _engineState->getDevice());
-    _commandBufferBloom.resize(settings->getMaxFramesInFlight());
-    for (int i = 0; i < settings->getMaxFramesInFlight(); i++) {
-      _commandBufferBloom[i] = std::make_shared<CommandBuffer>(_commandPoolBloom, _engineState->getDevice());
-      _engineState->getDebugUtils()->setName("Command buffer for bloom", VkObjectType::VK_OBJECT_TYPE_COMMAND_BUFFER,
-                                             _commandBufferBloom[i]->getCommandBuffer());
-    }
-  }
-  {
-    _commandPoolPostprocessing = std::make_shared<CommandPool>(vkb::QueueType::compute, _engineState->getDevice());
-    _commandBufferPostprocessing.resize(settings->getMaxFramesInFlight());
-    for (int i = 0; i < settings->getMaxFramesInFlight(); i++) {
-      _commandBufferPostprocessing[i] = std::make_shared<CommandBuffer>(_commandPoolPostprocessing,
-                                                                        _engineState->getDevice());
-      _engineState->getDebugUtils()->setName("Command buffer for postprocessing",
-                                             VkObjectType::VK_OBJECT_TYPE_COMMAND_BUFFER,
-                                             _commandBufferPostprocessing[i]->getCommandBuffer());
-    }
-  }
-  {
-    _commandPoolGUI = std::make_shared<CommandPool>(vkb::QueueType::graphics, _engineState->getDevice());
-    _commandBufferGUI.resize(settings->getMaxFramesInFlight());
-    for (int i = 0; i < settings->getMaxFramesInFlight(); i++) {
-      _commandBufferGUI[i] = std::make_shared<CommandBuffer>(_commandPoolGUI, _engineState->getDevice());
-      _engineState->getDebugUtils()->setName("Command buffer for GUI", VkObjectType::VK_OBJECT_TYPE_COMMAND_BUFFER,
-                                             _commandBufferGUI[i]->getCommandBuffer());
     }
   }
 
@@ -174,24 +124,9 @@ void Core::initialize() {
     // start transfer command buffer
 
     for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-      // graphic-presentation
-      _semaphoreImageAvailable.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
-      _semaphoreRenderFinished.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
-
-      // compute-graphic
-      _semaphoreParticleSystem.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
-      _semaphoreGUI.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
-
-      // postprocessing semaphore
-      _semaphorePostprocessing.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
-
       // application submit semaphore
       _semaphoreApplicationReady.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
       _waitSemaphoreApplicationReady[i] = false;
-    }
-
-    for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-      _fenceInFlight.push_back(std::make_shared<Fence>(_engineState->getDevice()));
     }
 
     _initializeTextures();
@@ -761,7 +696,7 @@ void Core::_renderGraphic(std::shared_ptr<CommandBuffer> commandBuffer) {
 
 VkResult Core::_getImageIndex() {
   auto frameInFlight = _engineState->getFrameInFlight();
-  std::vector<VkFence> waitFences = {_fenceInFlight[frameInFlight]->getFence()};
+  std::vector<VkFence> waitFences = {_renderGraph->getFenceInFlight()[frameInFlight]->getFence()};
   auto result = vkWaitForFences(_engineState->getDevice()->getLogicalDevice(), waitFences.size(), waitFences.data(),
                                 VK_TRUE, UINT64_MAX);
   if (result != VK_SUCCESS) throw std::runtime_error("Can't wait for fence");
@@ -773,8 +708,8 @@ VkResult Core::_getImageIndex() {
   // RETURNS ONLY INDEX, NOT IMAGE
   // semaphore to signal, once image is available
   result = vkAcquireNextImageKHR(_engineState->getDevice()->getLogicalDevice(), _swapchain->getSwapchain(), UINT64_MAX,
-                                 _semaphoreImageAvailable[frameInFlight]->getSemaphore(), VK_NULL_HANDLE,
-                                 &_swapchain->getSwapchainIndex());
+                                 _renderGraph->getSemaphoreImageAvailable()[frameInFlight]->getSemaphore(),
+                                 VK_NULL_HANDLE, &_swapchain->getSwapchainIndex());
 
   if (result == VK_ERROR_OUT_OF_DATE_KHR) {
     _reset();
@@ -846,208 +781,13 @@ void Core::_drawFrame() {
   }
 
   _renderGraph->render();
-  /*
-  // submit compute particles
-  std::vector<std::future<void>> particleFutures;
-  for (int i = 0; i < _particleSystems.size(); i++)
-    particleFutures.push_back(_pool->submit(std::bind(&Core::_computeParticles, this, i)));
-
-  _gameState->getCameraManager()->update();
-
-  // first update materials
-  for (auto& e : _materials) {
-    e->update(frameInFlight);
-  }
-
-  /////////////////////////////////////////////////////////////////////////////////////////
-  // render to depth buffer
-  /////////////////////////////////////////////////////////////////////////////////////////
-  std::vector<std::future<void>> shadowFutures;
-  std::vector<std::future<void>> shadowBlurFutures;
-  {
-    auto shadows = _gameState->getLightManager()->getDirectionalShadows();
-    for (int i = 0; i < shadows.size(); i++) {
-      if (shadows[i]) {
-        shadowFutures.push_back(_pool->submit(std::bind(&Core::_drawShadowMapDirectional, this, i)));
-        if (_blurGraphicDirectional.find(shadows[i]) != _blurGraphicDirectional.end())
-          shadowBlurFutures.push_back(_pool->submit(std::bind(&Core::_drawShadowMapDirectionalBlur, this, shadows[i])));
-      }
-    }
-  }
-  {
-    auto shadows = _gameState->getLightManager()->getPointShadows();
-    for (int i = 0; i < shadows.size(); i++) {
-      if (shadows[i]) {
-        for (int j = 0; j < 6; j++) {
-          shadowFutures.push_back(_pool->submit(std::bind(&Core::_drawShadowMapPoint, this, i, j)));
-          if (_blurGraphicPoint.find(shadows[i]) != _blurGraphicPoint.end())
-            shadowBlurFutures.push_back(_pool->submit(std::bind(&Core::_drawShadowMapPointBlur, this, shadows[i], j)));
-        }
-      }
-    }
-  }
-
-  auto bloomFuture = _pool->submit(std::bind(&Core::_computeBloom, this));
-  auto postprocessingFuture = _pool->submit(std::bind(&Core::_computePostprocessing, this));
-  auto debugVisualizationFuture = _pool->submit(std::bind(&Core::_debugVisualizations, this));
-
-  /////////////////////////////////////////////////////////////////////////////////////////////////
-  // Render graphics
-  /////////////////////////////////////////////////////////////////////////////////////////////////
-  _renderGraphic();
-
-  // wait for shadow to complete before render
-  for (auto& shadowFuture : shadowFutures) {
-    if (shadowFuture.valid()) {
-      shadowFuture.get();
-    }
-  }
-
-  for (auto& shadowBlur : shadowBlurFutures) {
-    if (shadowBlur.valid()) {
-      shadowBlur.get();
-    }
-  }
-
-  // wait for particles to complete before render
-  for (auto& particleFuture : particleFutures) {
-    if (particleFuture.valid()) particleFuture.get();
-  }
-  // submit particles
-  VkSubmitInfo submitInfoCompute{.commandBufferCount = 1,
-                                 .pCommandBuffers = &_commandBufferParticleSystem[frameInFlight]->getCommandBuffer(),
-                                 .signalSemaphoreCount = 1,
-                                 .pSignalSemaphores = &_semaphoreParticleSystem[frameInFlight]->getSemaphore()};
-  submitInfoCompute.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  std::vector<VkPipelineStageFlags> waitStages;
-  std::vector<VkSemaphore> semaphoresWaitParticles;
-  if (_waitSemaphoreApplicationReady[frameInFlight]) {
-    waitStages.push_back(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-    semaphoresWaitParticles.push_back(_semaphoreApplicationReady[frameInFlight]->getSemaphore());
-    _waitSemaphoreApplicationReady[_engineState->getFrameInFlight()] = false;
-  }
-  if (semaphoresWaitParticles.size() > 0) {
-    submitInfoCompute.waitSemaphoreCount = semaphoresWaitParticles.size();
-    submitInfoCompute.pWaitSemaphores = semaphoresWaitParticles.data();
-    submitInfoCompute.pWaitDstStageMask = waitStages.data();
-  }
-
-  // end command buffer
-  _frameSubmitInfoPreCompute[frameInFlight].push_back(submitInfoCompute);
-
-  std::vector<VkCommandBuffer> shadowAndGraphicBuffers;
-  {
-    // binary wait structure
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_VERTEX_INPUT_BIT};
-
-    VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                            .waitSemaphoreCount = 1,
-                            .pWaitSemaphores = &_semaphoreParticleSystem[frameInFlight]->getSemaphore(),
-                            .pWaitDstStageMask = waitStages};
-    {
-      auto shadows = _gameState->getLightManager()->getDirectionalShadows();
-      for (int i = 0; i < shadows.size(); i++) {
-        if (shadows[i]) {
-          shadowAndGraphicBuffers.push_back(_gameState->getLightManager()
-                                                ->getDirectionalShadows()[i]
-                                                ->getShadowMapCommandBuffer(frameInFlight)
-                                                ->getCommandBuffer());
-          if (_blurGraphicDirectional.find(shadows[i]) != _blurGraphicDirectional.end())
-            shadowAndGraphicBuffers.push_back(
-                _blurGraphicDirectional[shadows[i]]->getShadowMapBlurCommandBuffer(frameInFlight)->getCommandBuffer());
-        }
-      }
-    }
-    {
-      auto shadows = _gameState->getLightManager()->getPointShadows();
-      for (int i = 0; i < shadows.size(); i++) {
-        if (shadows[i]) {
-          auto shadowMap = shadows[i]->getShadowMapCommandBuffer(frameInFlight);
-          for (int j = 0; j < shadowMap.size(); j++) {
-            shadowAndGraphicBuffers.push_back(shadowMap[j]->getCommandBuffer());
-            if (_blurGraphicPoint.find(shadows[i]) != _blurGraphicPoint.end())
-              shadowAndGraphicBuffers.push_back(
-                  _blurGraphicPoint[shadows[i]]->getShadowMapBlurCommandBuffer(frameInFlight)[j]->getCommandBuffer());
-          }
-        }
-      }
-    }
-    shadowAndGraphicBuffers.push_back(_commandBufferRender[frameInFlight]->getCommandBuffer());
-    submitInfo.commandBufferCount = shadowAndGraphicBuffers.size();
-    submitInfo.pCommandBuffers = shadowAndGraphicBuffers.data();
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = &_semaphorePostprocessing[frameInFlight]->getSemaphore();
-
-    std::unique_lock<std::mutex> lock(_frameSubmitMutexGraphic);
-    _frameSubmitInfoGraphic[frameInFlight].push_back(submitInfo);
-  }
-  //////////////////////////////////////////////////////////////////////////////////////////////////
-  // Render compute postprocessing
-  //////////////////////////////////////////////////////////////////////////////////////////////////
-  std::vector<VkSemaphore> waitSemaphoresPostprocessing = {_semaphoreImageAvailable[frameInFlight]->getSemaphore(),
-                                                           _semaphorePostprocessing[frameInFlight]->getSemaphore()};
-  std::vector<VkCommandBuffer> commandBuffersPostprocessing = {
-      _commandBufferPostprocessing[frameInFlight]->getCommandBuffer(),
-      _commandBufferBloom[frameInFlight]->getCommandBuffer()};
-  {
-    if (bloomFuture.valid()) bloomFuture.get();
-    if (postprocessingFuture.valid()) postprocessingFuture.get();
-
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT};
-    VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                            .waitSemaphoreCount = static_cast<uint32_t>(waitSemaphoresPostprocessing.size()),
-                            .pWaitSemaphores = waitSemaphoresPostprocessing.data(),
-                            .pWaitDstStageMask = waitStages,
-                            .commandBufferCount = (uint32_t)commandBuffersPostprocessing.size(),
-                            .pCommandBuffers = commandBuffersPostprocessing.data(),
-                            .signalSemaphoreCount = 1,
-                            .pSignalSemaphores = &_semaphoreGUI[frameInFlight]->getSemaphore()};
-
-    _frameSubmitInfoPostCompute[frameInFlight].push_back(submitInfo);
-  }
-
-  //////////////////////////////////////////////////////////////////////////////////////////////////
-  // Render debug visualization
-  //////////////////////////////////////////////////////////////////////////////////////////////////
-  {
-    if (debugVisualizationFuture.valid()) debugVisualizationFuture.get();
-
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT};
-    VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                            .waitSemaphoreCount = 1,
-                            .pWaitSemaphores = &_semaphoreGUI[frameInFlight]->getSemaphore(),
-                            .pWaitDstStageMask = waitStages,
-                            .commandBufferCount = 1,
-                            .pCommandBuffers = &_commandBufferGUI[frameInFlight]->getCommandBuffer(),
-                            .signalSemaphoreCount = 1,
-                            .pSignalSemaphores = &_semaphoreRenderFinished[frameInFlight]->getSemaphore()};
-
-    _frameSubmitInfoDebug[frameInFlight].push_back(submitInfo);
-  }
-
-  // because of binary semaphores, we can't submit task with semaphore wait BEFORE task with semaphore signal.
-  // that's why we have to split submit pipeline.
-  vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::compute),
-                _frameSubmitInfoPreCompute[frameInFlight].size(), _frameSubmitInfoPreCompute[frameInFlight].data(),
-                VK_NULL_HANDLE);
-  vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics),
-                _frameSubmitInfoGraphic[frameInFlight].size(), _frameSubmitInfoGraphic[frameInFlight].data(),
-                VK_NULL_HANDLE);
-  vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::compute),
-                _frameSubmitInfoPostCompute[frameInFlight].size(), _frameSubmitInfoPostCompute[frameInFlight].data(),
-                VK_NULL_HANDLE);
-  // latest graphic job should signal fence about completion, otherwise render signal that it's done, but debug still in
-  // progress (for 0 frame) and we submit new frame with 0 index
-  vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics),
-                _frameSubmitInfoDebug[frameInFlight].size(), _frameSubmitInfoDebug[frameInFlight].data(),
-                _fenceInFlight[frameInFlight]->getFence());
-  */
 }
 
 void Core::_displayFrame() {
   auto frameInFlight = _engineState->getFrameInFlight();
 
-  std::vector<VkSemaphore> waitSemaphoresPresent = {_semaphoreRenderFinished[frameInFlight]->getSemaphore()};
+  std::vector<VkSemaphore> waitSemaphoresPresent = {
+      _renderGraph->getSemaphoreRenderFinished()[frameInFlight]->getSemaphore()};
   VkSwapchainKHR swapChains[] = {_swapchain->getSwapchain()};
   VkPresentInfoKHR presentInfo{.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
                                .waitSemaphoreCount = static_cast<uint32_t>(waitSemaphoresPresent.size()),
@@ -1108,6 +848,7 @@ void Core::draw() {
             }
             computeParticlesPass->addStorageInput("Particles " + std::to_string(i), inputBuffer);
             computeParticlesPass->addStorageOutput("Particles " + std::to_string(i), outputBuffer);
+            computeParticlesPass->addWaitSemaphore(_semaphoreApplicationReady);
           }
         }
         {
@@ -1205,6 +946,7 @@ void Core::draw() {
         {
           // render
           auto renderPass = _renderGraph->getPass("Render", GraphPassStage::GRAPHIC);
+          renderPass->addRenderExecution(std::bind(&Core::_renderGraphic, this, std::placeholders::_1));
           for (int i = 0; i < _particleSystems.size(); i++) {
             renderPass->addVertexBufferInput(
                 "Particles " + std::to_string(i),
