@@ -115,20 +115,9 @@ void Core::_initializeFramebuffer() {
 
 void Core::initialize() {
   try {
-    _frameSubmitInfoPreCompute.resize(_engineState->getSettings()->getMaxFramesInFlight());
-    _frameSubmitInfoGraphic.resize(_engineState->getSettings()->getMaxFramesInFlight());
-    _frameSubmitInfoPostCompute.resize(_engineState->getSettings()->getMaxFramesInFlight());
-    _frameSubmitInfoDebug.resize(_engineState->getSettings()->getMaxFramesInFlight());
-
     int currentFrame = _engineState->getFrameInFlight();
+    _commandBufferApplication[currentFrame]->beginCommands();
     // start transfer command buffer
-
-    for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-      // application submit semaphore
-      _semaphoreApplicationReady.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
-      _waitSemaphoreApplicationReady[i] = false;
-    }
-
     _initializeTextures();
     _initializeFramebuffer();
 
@@ -431,7 +420,6 @@ void Core::_computeBloom(std::shared_ptr<CommandBuffer> commandBuffer) {
   auto frameInFlight = _engineState->getFrameInFlight();
   auto logger = _engineState->getLogger();
 
-  //_commandBufferBloom[frameInFlight]->beginCommands();
   commandBuffer->beginCommands();
   int bloomPasses = _engineState->getSettings()->getBloomPasses();
   // blur cycle:
@@ -501,7 +489,6 @@ void Core::_computePostprocessing(std::shared_ptr<CommandBuffer> commandBuffer) 
   auto logger = _engineState->getLogger();
   auto swapchainImageIndex = _swapchain->getSwapchainIndex();
 
-  //_commandBufferPostprocessing[frameInFlight]->beginCommands();
   commandBuffer->beginCommands();
   // wait dst image to be ready
   {
@@ -534,7 +521,6 @@ void Core::_debugVisualizations(std::shared_ptr<CommandBuffer> commandBuffer) {
   auto logger = _engineState->getLogger();
   auto swapchainImageIndex = _swapchain->getSwapchainIndex();
 
-  //  _commandBufferGUI[frameInFlight]->beginCommands();
   commandBuffer->beginCommands();
 
   auto [widthFramebuffer, heightFramebuffer] = _frameBufferDebug[swapchainImageIndex]->getResolution();
@@ -554,7 +540,6 @@ void Core::_debugVisualizations(std::shared_ptr<CommandBuffer> commandBuffer) {
   _gui->drawFrame(commandBuffer);
   logger->end(commandBuffer);
   vkCmdEndRenderPass(commandBuffer->getCommandBuffer());
-
   commandBuffer->endCommands();
 }
 
@@ -563,7 +548,6 @@ void Core::_renderGraphic(std::shared_ptr<CommandBuffer> commandBuffer) {
   auto logger = _engineState->getLogger();
 
   // record command buffer
-  //_commandBufferRender[frameInFlight]->beginCommands();
   commandBuffer->beginCommands();
   /////////////////////////////////////////////////////////////////////////////////////////
   // depth to screne barrier
@@ -701,19 +685,16 @@ VkResult Core::_getImageIndex() {
                                 VK_TRUE, UINT64_MAX);
   if (result != VK_SUCCESS) throw std::runtime_error("Can't wait for fence");
 
-  _frameSubmitInfoPreCompute[frameInFlight].clear();
-  _frameSubmitInfoGraphic[frameInFlight].clear();
-  _frameSubmitInfoPostCompute[frameInFlight].clear();
-  _frameSubmitInfoDebug[frameInFlight].clear();
   // RETURNS ONLY INDEX, NOT IMAGE
   // semaphore to signal, once image is available
   result = vkAcquireNextImageKHR(_engineState->getDevice()->getLogicalDevice(), _swapchain->getSwapchain(), UINT64_MAX,
                                  _renderGraph->getSemaphoreImageAvailable()[frameInFlight]->getSemaphore(),
                                  VK_NULL_HANDLE, &_swapchain->getSwapchainIndex());
 
-  if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+  if (result == VK_ERROR_OUT_OF_DATE_KHR || _engineState->getWindow()->getResized()) {
+    _engineState->getWindow()->setResized(false);
     _reset();
-    return result;
+    return VK_ERROR_OUT_OF_DATE_KHR;
   } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
     throw std::runtime_error("failed to acquire swap chain image!");
   }
@@ -742,25 +723,10 @@ void Core::_reset() {
   for (auto& imageView : _swapchain->getImageViews())
     imageView->getImage()->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                                         VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, _commandBufferApplication[frameInFlight]);
-  _gui->reset();
-  _blurCompute->reset(_textureBlurIn, _textureBlurOut);
-
-  _commandBufferApplication[frameInFlight]->endCommands();
+  if (_gui) _gui->reset();
+  if (_blurCompute) _blurCompute->reset(_textureBlurIn, _textureBlurOut);
 
   _initializeFramebuffer();
-  {
-    std::vector<VkSemaphore> signalSemaphoresInitialize = {
-        _semaphoreApplicationReady[_engineState->getFrameInFlight()]->getSemaphore()};
-    VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                            .commandBufferCount = 1,
-                            .pCommandBuffers = &_commandBufferApplication[frameInFlight]->getCommandBuffer(),
-                            .signalSemaphoreCount = static_cast<uint32_t>(signalSemaphoresInitialize.size()),
-                            .pSignalSemaphores = signalSemaphoresInitialize.data()};
-
-    auto queue = _engineState->getDevice()->getQueue(vkb::QueueType::graphics);
-    vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
-    _waitSemaphoreApplicationReady[_engineState->getFrameInFlight()] = true;
-  }
 
   _callbackReset(_swapchain->getSwapchain().extent.width, _swapchain->getSwapchain().extent.height);
 }
@@ -769,18 +735,6 @@ void Core::_clearUnusedData() {
   int currentFrame = _engineState->getFrameInFlight();
   _unusedShadowable[currentFrame].clear();
   _unusedDrawable[currentFrame].clear();
-}
-
-void Core::_drawFrame() {
-  auto frameInFlight = _engineState->getFrameInFlight();
-  _gameState->getCameraManager()->update();
-
-  // first update materials
-  for (auto& e : _materials) {
-    e->update(frameInFlight);
-  }
-
-  _renderGraph->render();
 }
 
 void Core::_displayFrame() {
@@ -801,9 +755,8 @@ void Core::_displayFrame() {
 
   // getResized() can be valid only here, we can get inconsistencies in semaphores if VK_ERROR_OUT_OF_DATE_KHR is not
   // reported by Vulkan
-  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || _engineState->getWindow()->getResized()) {
-    _engineState->getWindow()->setResized(false);
-    _reset();
+  if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+    _engineState->getWindow()->setResized(true);
   } else if (result != VK_SUCCESS) {
     throw std::runtime_error("failed to present swap chain image!");
   }
@@ -821,16 +774,48 @@ void Core::draw() {
       _timerFPSReal->tick();
       _timerFPSLimited->tick();
       _engineState->setFrameInFlight(_timer->getFrameCounter() % _engineState->getSettings()->getMaxFramesInFlight());
+      auto frameInFlight = _engineState->getFrameInFlight();
+      std::vector<VkFence> waitFences = {_renderGraph->getFenceInFlight()[frameInFlight]->getFence()};
+      auto result = vkWaitForFences(_engineState->getDevice()->getLogicalDevice(), waitFences.size(), waitFences.data(),
+                                    VK_TRUE, UINT64_MAX);
+      if (result != VK_SUCCESS) throw std::runtime_error("Can't wait for fence");
 
-      // business/application update loop callback
-      while (_getImageIndex() != VK_SUCCESS)
-        ;
+      result = VK_ERROR_OUT_OF_DATE_KHR;
+      while (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        // RETURNS ONLY INDEX, NOT IMAGE
+        // semaphore to signal, once image is available
+        result = vkAcquireNextImageKHR(_engineState->getDevice()->getLogicalDevice(), _swapchain->getSwapchain(),
+                                       UINT64_MAX,
+                                       _renderGraph->getSemaphoreImageAvailable()[frameInFlight]->getSemaphore(),
+                                       VK_NULL_HANDLE, &_swapchain->getSwapchainIndex());
+
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || _engineState->getWindow()->getResized()) {
+          result = VK_ERROR_OUT_OF_DATE_KHR;
+          _engineState->getWindow()->setResized(false);
+          _reset();
+        } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+          throw std::runtime_error("failed to acquire swap chain image!");
+        }
+      }
+      // Only reset the fence if we are submitting work
+      result = vkResetFences(_engineState->getDevice()->getLogicalDevice(), waitFences.size(), waitFences.data());
+      if (result != VK_SUCCESS) throw std::runtime_error("Can't reset fence");
+
       // clear removed entities: drawables and shadowables
       _clearUnusedData();
       // application update, can be anything
-      _callbackUpdate();
 
       if (_recalculateRenderGraph) {
+        // application
+        {
+          auto applicationPass = _renderGraph->getPassApplication();
+          applicationPass->setCommandBuffers(_commandBufferApplication);
+          applicationPass->addRenderExecution([this](std::shared_ptr<CommandBuffer> commandBuffer) {
+            if (commandBuffer->getActive() == false) commandBuffer->beginCommands();
+            _callbackUpdate(commandBuffer);
+            commandBuffer->endCommands();
+          });
+        }
         {
           // particle system
           for (int i = 0; i < _particleSystems.size(); i++) {
@@ -848,7 +833,6 @@ void Core::draw() {
             }
             computeParticlesPass->addStorageInput("Particles " + std::to_string(i), inputBuffer);
             computeParticlesPass->addStorageOutput("Particles " + std::to_string(i), outputBuffer);
-            computeParticlesPass->addWaitSemaphore(_semaphoreApplicationReady);
           }
         }
         {
@@ -1015,7 +999,15 @@ void Core::draw() {
         _recalculateRenderGraph = false;
       }
       // render scene
-      _drawFrame();
+      _gameState->getCameraManager()->update();
+
+      // first update materials
+      for (auto& e : _materials) {
+        e->update(frameInFlight);
+      }
+
+      _renderGraph->render();
+
       _timerFPSReal->tock();
       // if GPU frames are limited by driver it will happen during display
       _displayFrame();
@@ -1032,29 +1024,9 @@ void Core::draw() {
   }
 }
 
-void Core::registerUpdate(std::function<void()> update) { _callbackUpdate = update; }
+void Core::registerUpdate(std::function<void(std::shared_ptr<CommandBuffer>)> update) { _callbackUpdate = update; }
 
-void Core::registerReset(std::function<void(int width, int height)> reset) { _callbackReset = reset; }
-
-void Core::startRecording() { _commandBufferApplication[_engineState->getFrameInFlight()]->beginCommands(); }
-
-void Core::endRecording() {
-  int frameInFlight = _engineState->getFrameInFlight();
-  _commandBufferApplication[frameInFlight]->endCommands();
-  {
-    std::vector<VkSemaphore> signalSemaphores = {
-        _semaphoreApplicationReady[_engineState->getFrameInFlight()]->getSemaphore()};
-    VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                            .commandBufferCount = 1,
-                            .pCommandBuffers = &_commandBufferApplication[frameInFlight]->getCommandBuffer(),
-                            .signalSemaphoreCount = static_cast<uint32_t>(signalSemaphores.size()),
-                            .pSignalSemaphores = signalSemaphores.data()};
-
-    auto queue = _engineState->getDevice()->getQueue(vkb::QueueType::graphics);
-    vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
-    _waitSemaphoreApplicationReady[_engineState->getFrameInFlight()] = true;
-  }
-}
+void Core::registerReset(std::function<void(int, int)> reset) { _callbackReset = reset; }
 
 void Core::setCamera(std::shared_ptr<Camera> camera) { _gameState->getCameraManager()->setCurrentCamera(camera); }
 

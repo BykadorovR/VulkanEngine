@@ -80,6 +80,10 @@ std::vector<std::vector<std::shared_ptr<Semaphore>>> GraphPass::getSignalSemapho
 
 std::vector<std::vector<std::shared_ptr<Semaphore>>> GraphPass::getWaitSemaphores() { return _waitSemaphores; }
 
+void GraphPass::setCommandBuffers(std::vector<std::shared_ptr<CommandBuffer>> commandBuffers) {
+  _commandBuffers = commandBuffers;
+}
+
 std::vector<std::shared_ptr<CommandBuffer>> GraphPass::getCommandBuffers() { return _commandBuffers; }
 
 RenderGraph::RenderGraph(std::shared_ptr<Swapchain> swapchain,
@@ -93,6 +97,7 @@ RenderGraph::RenderGraph(std::shared_ptr<Swapchain> swapchain,
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
     _semaphoreRenderFinished.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
     _semaphoreImageAvailable.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
+    _semaphoreApplicationReady.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
     _fenceInFlight.push_back(std::make_shared<Fence>(_engineState->getDevice()));
   }
 }
@@ -111,9 +116,15 @@ std::shared_ptr<GraphPass> RenderGraph::getPass(std::string name, GraphPassStage
   return _passes[name];
 }
 
+std::shared_ptr<GraphPass> RenderGraph::getPassApplication() {
+  if (_passApplication == nullptr)
+    _passApplication = std::make_shared<GraphPass>(GraphPassStage::GRAPHIC, _engineState);
+  return _passApplication;
+}
+
 void RenderGraph::print() {
-  for (auto [key, value] : _passes) {
-    std::cout << key << ", stage: " << (int)value->getStage() << std::endl;
+  for (auto value : _passesOrdered) {
+    std::cout << "Stage : " << (int)value->getStage() << std::endl;
     for (auto waitSemaphores : value->getWaitSemaphores()) {
       std::cout << " wait semaphores: ";
       for (auto waitSemaphore : waitSemaphores) {
@@ -169,13 +180,15 @@ void RenderGraph::calculate() {
     return dependencies;
   };
 
-  auto findColorTarget = [](std::map<std::string, std::shared_ptr<GraphPass>> passes,
-                            std::string findName) -> std::string {
+  auto findTarget = [](std::map<std::string, std::shared_ptr<GraphPass>> passes, std::string findName) -> std::string {
     for (auto [key, value] : passes) {
       for (auto [name, resource] : value->getColorTargets()) {
         if (name == findName) return key;
       }
       for (auto [name, resource] : value->getDepthTarget()) {
+        if (name == findName) return key;
+      }
+      for (auto [name, resource] : value->getStorageOutputs()) {
         if (name == findName) return key;
       }
     }
@@ -196,7 +209,7 @@ void RenderGraph::calculate() {
     auto dependencies = getDependencies(name);
     for (auto dependency : dependencies) {
       // we want to find who writes to this texture, so we are looking for color target or depth target
-      auto targetName = findColorTarget(passesBackup, dependency);
+      auto targetName = findTarget(passesBackup, dependency);
       if (targetName.empty() == false) {
         traverse(targetName, _passes[targetName]);
       }
@@ -210,7 +223,7 @@ void RenderGraph::calculate() {
   // set semaphores between passes
   bool flagWaitForSwapchain = true;
   bool queueTypeChange = false;
-  GraphPassStage passStagePrevious = _passesOrdered[0]->getStage();
+  GraphPassStage passStagePrevious = _passApplication->getStage();
   for (int i = 0; i < _passesOrdered.size(); i++) {
     auto node = _passesOrdered[i];
     if (node->getStage() != passStagePrevious) queueTypeChange = true;
@@ -253,6 +266,9 @@ void RenderGraph::calculate() {
 
 void RenderGraph::render() {
   auto frameInFlight = _engineState->getFrameInFlight();
+  // application update should be called in main thread because of ImGUI
+  _passApplication->execute();
+
   std::vector<std::pair<std::shared_ptr<GraphPass>, std::future<void>>> renderFutures;
   for (auto& pass : _passesOrdered) {
     renderFutures.push_back({pass, _threadPool->submit(std::bind(&GraphPass::execute, pass))});
@@ -262,7 +278,20 @@ void RenderGraph::render() {
   std::vector<VkSemaphore> signalSemaphores;
   std::vector<VkSemaphore> waitSemaphores;
   std::vector<VkPipelineStageFlags> waitStages;
-  GraphPassStage previousStage = renderFutures[0].first->getStage();
+  // first submit application
+  {
+    VkSubmitInfo submitInfo{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &_passApplication->getCommandBuffers()[frameInFlight]->getCommandBuffer(),
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &_semaphoreApplicationReady[frameInFlight]->getSemaphore()};
+    vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo, VK_NULL_HANDLE);
+    waitSemaphores.push_back(_semaphoreApplicationReady[frameInFlight]->getSemaphore());
+    waitStages.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+  }
+  // process rest of the stages
+  GraphPassStage previousStage = _passApplication->getStage();
   for (int i = 0; i < renderFutures.size(); i++) {
     std::shared_ptr<GraphPass> graphPass = renderFutures[i].first;
     std::future<void> renderFuture = std::move(renderFutures[i].second);

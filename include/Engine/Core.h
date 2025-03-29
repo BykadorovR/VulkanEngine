@@ -43,8 +43,6 @@ class Core {
   std::vector<std::shared_ptr<Framebuffer>> _frameBufferGraphic, _frameBufferDebug;
   std::shared_ptr<CommandPool> _commandPoolApplication;
   std::vector<std::shared_ptr<CommandBuffer>> _commandBufferApplication;
-  std::vector<std::shared_ptr<Semaphore>> _semaphoreApplicationReady;
-  std::map<int, bool> _waitSemaphoreApplicationReady;
 
   std::vector<std::shared_ptr<Texture>> _textureRender, _textureBlurIn, _textureBlurOut;
   std::set<std::shared_ptr<Material>> _materials;
@@ -68,11 +66,9 @@ class Core {
   std::map<std::shared_ptr<DirectionalShadow>, std::shared_ptr<DirectionalShadowBlur>> _blurGraphicDirectional;
   std::map<std::shared_ptr<PointShadow>, std::shared_ptr<PointShadowBlur>> _blurGraphicPoint;
   std::shared_ptr<BS::thread_pool> _pool;
-  std::function<void()> _callbackUpdate;
+  std::function<void(std::shared_ptr<CommandBuffer> commandBuffer)> _callbackUpdate;
   std::function<void(int width, int height)> _callbackReset;
 
-  std::vector<std::vector<VkSubmitInfo>> _frameSubmitInfoPreCompute, _frameSubmitInfoPostCompute,
-      _frameSubmitInfoGraphic, _frameSubmitInfoDebug;
   std::mutex _frameSubmitMutexGraphic;
   bool _recalculateRenderGraph = true;
 
@@ -93,7 +89,6 @@ class Core {
 
   VkResult _getImageIndex();
   void _displayFrame();
-  void _drawFrame();
   void _clearUnusedData();
   void _reset();
 
@@ -105,11 +100,9 @@ class Core {
 #endif
   void initialize();
   void draw();
-  void registerUpdate(std::function<void()> update);
-  void registerReset(std::function<void(int width, int height)> reset);
+  void registerUpdate(std::function<void(std::shared_ptr<CommandBuffer>)> update);
+  void registerReset(std::function<void(int, int)> reset);
 
-  void startRecording();
-  void endRecording();
   void setCamera(std::shared_ptr<Camera> camera);
   void addDrawable(std::shared_ptr<Drawable> drawable, AlphaType type = AlphaType::TRANSPARENT);
   void addShadowable(std::shared_ptr<Shadowable> shadowable);

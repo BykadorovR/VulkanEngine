@@ -48,6 +48,8 @@ class GraphPass {
   void addWaitSemaphore(std::vector<std::shared_ptr<Semaphore>> waitSemaphore);
   std::vector<std::vector<std::shared_ptr<Semaphore>>> getSignalSemaphores();
   std::vector<std::vector<std::shared_ptr<Semaphore>>> getWaitSemaphores();
+
+  void setCommandBuffers(std::vector<std::shared_ptr<CommandBuffer>> commandBuffers);
   std::vector<std::shared_ptr<CommandBuffer>> getCommandBuffers();
 
   GraphPassStage getStage();
@@ -66,12 +68,14 @@ class GraphPass {
 class RenderGraph {
  private:
   std::map<std::string, std::shared_ptr<GraphPass>> _passes;
+  std::shared_ptr<GraphPass> _passApplication;
   std::deque<std::shared_ptr<GraphPass>> _passesOrdered;
   std ::shared_ptr<Swapchain> _swapchain;
   std::shared_ptr<EngineState> _engineState;
   std::shared_ptr<BS::thread_pool> _threadPool;
   // special semaphores
-  std::vector<std::shared_ptr<Semaphore>> _semaphoreRenderFinished, _semaphoreImageAvailable;
+  std::vector<std::shared_ptr<Semaphore>> _semaphoreRenderFinished, _semaphoreImageAvailable,
+      _semaphoreApplicationReady;
   std::vector<std::shared_ptr<Fence>> _fenceInFlight;
 
  public:
@@ -79,6 +83,7 @@ class RenderGraph {
               std::shared_ptr<BS::thread_pool> threadPool,
               std::shared_ptr<EngineState> engineState);
   std::shared_ptr<GraphPass> getPass(std::string name, GraphPassStage stage);
+  std::shared_ptr<GraphPass> getPassApplication();
   std::vector<std::shared_ptr<Semaphore>> getSemaphoreRenderFinished();
   std::vector<std::shared_ptr<Semaphore>> getSemaphoreImageAvailable();
   std::vector<std::shared_ptr<Fence>> getFenceInFlight();
