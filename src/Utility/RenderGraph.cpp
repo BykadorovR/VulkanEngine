@@ -1,6 +1,7 @@
 #include "Utility/RenderGraph.h"
 
-GraphPass::GraphPass(GraphPassStage stage, std::shared_ptr<EngineState> engineState) {
+GraphPass::GraphPass(std::string name, GraphPassStage stage, std::shared_ptr<EngineState> engineState) {
+  _name = name;
   _stage = stage;
   _engineState = engineState;
 
@@ -43,7 +44,11 @@ void GraphPass::addRenderExecution(std::function<void(std::shared_ptr<CommandBuf
 }
 
 void GraphPass::execute() {
-  for (auto& render : _renderExecution) render(_commandBuffers[_engineState->getFrameInFlight()]);
+  for (auto& render : _renderExecution) {
+    auto commandBuffer = _commandBuffers[_engineState->getFrameInFlight()];
+    if (commandBuffer->getActive() == false) commandBuffer->beginCommands();
+    render(commandBuffer);
+  }
 }
 
 void GraphPass::addStorageInput(std::string name, std::vector<std::shared_ptr<Buffer>> buffers) {
@@ -67,6 +72,8 @@ void GraphPass::setDepthTarget(std::string name, std::shared_ptr<Image> image) {
 void GraphPass::setEnd(bool end) { _end = end; }
 
 bool GraphPass::getEnd() { return _end; }
+
+std::string GraphPass::getName() { return _name; }
 
 void GraphPass::addSignalSemaphore(std::vector<std::shared_ptr<Semaphore>> signalSemaphore) {
   _signalSemaphores.push_back(signalSemaphore);
@@ -97,7 +104,6 @@ RenderGraph::RenderGraph(std::shared_ptr<Swapchain> swapchain,
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
     _semaphoreRenderFinished.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
     _semaphoreImageAvailable.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
-    _semaphoreApplicationReady.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
     _fenceInFlight.push_back(std::make_shared<Fence>(_engineState->getDevice()));
   }
 }
@@ -109,22 +115,36 @@ std::vector<std::shared_ptr<Semaphore>> RenderGraph::getSemaphoreImageAvailable(
 std::vector<std::shared_ptr<Fence>> RenderGraph::getFenceInFlight() { return _fenceInFlight; }
 
 std::shared_ptr<GraphPass> RenderGraph::getPass(std::string name, GraphPassStage stage) {
-  if (_passes.find(name) == _passes.end()) {
-    _passes[name] = std::make_shared<GraphPass>(stage, _engineState);
+  auto passIt = std::find_if(_passes.begin(), _passes.end(), [name = name](std::shared_ptr<GraphPass> graphPass) {
+    return graphPass->getName() == name;
+  });
+  if (passIt == _passes.end()) {
+    auto pass = std::make_shared<GraphPass>(name, stage, _engineState);
+    _passes.push_back(pass);
+    return pass;
   }
 
-  return _passes[name];
+  return *passIt;
 }
 
 std::shared_ptr<GraphPass> RenderGraph::getPassApplication() {
-  if (_passApplication == nullptr)
-    _passApplication = std::make_shared<GraphPass>(GraphPassStage::GRAPHIC, _engineState);
+  if (_passApplication == nullptr) {
+    _passApplication = std::make_shared<GraphPass>("Application", GraphPassStage::GRAPHIC, _engineState);
+    std::vector<std::shared_ptr<Semaphore>> semaphoreApplicationReady;
+    for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
+      semaphoreApplicationReady.push_back(std::make_shared<Semaphore>(_engineState->getDevice()));
+    }
+    _passApplication->addSignalSemaphore(semaphoreApplicationReady);
+  }
   return _passApplication;
 }
 
 void RenderGraph::print() {
-  for (auto value : _passesOrdered) {
-    std::cout << "Stage : " << (int)value->getStage() << std::endl;
+  std::deque<std::shared_ptr<GraphPass>> passes;
+  passes.push_back(_passApplication);
+  for (auto value : _passesOrdered) passes.push_back(value);
+  for (auto value : passes) {
+    std::cout << "Name: " << value->getName() << ", Stage : " << (int)value->getStage() << std::endl;
     for (auto waitSemaphores : value->getWaitSemaphores()) {
       std::cout << " wait semaphores: ";
       for (auto waitSemaphore : waitSemaphores) {
@@ -163,7 +183,9 @@ void RenderGraph::print() {
 void RenderGraph::calculate() {
   auto getDependencies = [&](std::string name) -> std::vector<std::string> {
     std::vector<std::string> dependencies;
-    auto value = _passes[name];
+    auto value = *std::find_if(_passes.begin(), _passes.end(), [name = name](std::shared_ptr<GraphPass> graphPass) {
+      return graphPass->getName() == name;
+    });
     for (auto [name, resource] : value->getStorageInputs()) {
       dependencies.push_back(name);
     }
@@ -180,44 +202,43 @@ void RenderGraph::calculate() {
     return dependencies;
   };
 
-  auto findTarget = [](std::map<std::string, std::shared_ptr<GraphPass>> passes, std::string findName) -> std::string {
-    for (auto [key, value] : passes) {
+  auto findTarget = [](std::vector<std::shared_ptr<GraphPass>> passes,
+                       std::string findName) -> std::shared_ptr<GraphPass> {
+    for (auto& value : passes) {
       for (auto [name, resource] : value->getColorTargets()) {
-        if (name == findName) return key;
+        if (name == findName) return value;
       }
       for (auto [name, resource] : value->getDepthTarget()) {
-        if (name == findName) return key;
+        if (name == findName) return value;
       }
       for (auto [name, resource] : value->getStorageOutputs()) {
-        if (name == findName) return key;
+        if (name == findName) return value;
       }
     }
-    return "";
+    return nullptr;
   };
 
-  std::pair<std::string, std::shared_ptr<GraphPass>> root{"", nullptr};
-  for (auto [key, value] : _passes) {
-    if (value->getEnd()) root = {key, value};
+  std::shared_ptr<GraphPass> root{nullptr};
+  for (auto& value : _passes) {
+    if (value->getEnd()) root = {value};
   }
-  std::map<std::shared_ptr<GraphPass>, std::vector<std::shared_ptr<GraphPass>>> passes;
   auto passesBackup = _passes;
   // we should for every root pass run traversal process
-  std::function<void(std::string name, std::shared_ptr<GraphPass>)> traverse = [&](std::string name,
-                                                                                   std::shared_ptr<GraphPass> node) {
-    passesBackup.erase(name);
+  std::function<void(std::shared_ptr<GraphPass>)> traverse = [&](std::shared_ptr<GraphPass> node) {
+    passesBackup.erase(std::remove(passesBackup.begin(), passesBackup.end(), node), passesBackup.end());
     _passesOrdered.push_front(node);
-    auto dependencies = getDependencies(name);
+    auto dependencies = getDependencies(node->getName());
     for (auto dependency : dependencies) {
       // we want to find who writes to this texture, so we are looking for color target or depth target
-      auto targetName = findTarget(passesBackup, dependency);
-      if (targetName.empty() == false) {
-        traverse(targetName, _passes[targetName]);
+      auto targetPass = findTarget(passesBackup, dependency);
+      if (targetPass) {
+        traverse(targetPass);
       }
     }
   };
 
-  if (root.second) {
-    traverse(root.first, root.second);
+  if (root) {
+    traverse(root);
   }
 
   // set semaphores between passes
@@ -274,37 +295,74 @@ void RenderGraph::render() {
     renderFutures.push_back({pass, _threadPool->submit(std::bind(&GraphPass::execute, pass))});
   }
 
-  std::vector<VkCommandBuffer> commandBufferSubmit;
+  std::vector<std::shared_ptr<CommandBuffer>> commandBufferSubmit;
   std::vector<VkSemaphore> signalSemaphores;
   std::vector<VkSemaphore> waitSemaphores;
   std::vector<VkPipelineStageFlags> waitStages;
   // first submit application
   {
+    for (auto& semaphores : _passApplication->getSignalSemaphores()) {
+      signalSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
+      waitSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
+      waitStages.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    }
+    // need to end command buffers before submit
+    _passApplication->getCommandBuffers()[frameInFlight]->endCommands();
     VkSubmitInfo submitInfo{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
         .commandBufferCount = 1,
         .pCommandBuffers = &_passApplication->getCommandBuffers()[frameInFlight]->getCommandBuffer(),
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &_semaphoreApplicationReady[frameInFlight]->getSemaphore()};
+        .signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
+        .pSignalSemaphores = signalSemaphores.data()};
     vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo, VK_NULL_HANDLE);
-    waitSemaphores.push_back(_semaphoreApplicationReady[frameInFlight]->getSemaphore());
-    waitStages.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    signalSemaphores.clear();
   }
   // process rest of the stages
   GraphPassStage previousStage = _passApplication->getStage();
+  bool flagWaitForSwapchain = true;
   for (int i = 0; i < renderFutures.size(); i++) {
     std::shared_ptr<GraphPass> graphPass = renderFutures[i].first;
     std::future<void> renderFuture = std::move(renderFutures[i].second);
     if (renderFuture.valid()) renderFuture.get();
+
+    // the pass that writes to swapchain should use SRC_KHR layout as old
+    // it will be transfered back to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR due to RenderPass
+    // who first interacts with swapchain that changes the layout
+    if (flagWaitForSwapchain) {
+      for (auto [key, value] : graphPass->getColorTargets()) {
+        auto swapchainImageViews = _swapchain->getImageViews();
+        bool found = false;
+        for (auto swapchain : swapchainImageViews) {
+          if (std::find_if(value.begin(), value.end(), [swapchain = swapchain](std::shared_ptr<Image> image) {
+                return image->getImage() == swapchain->getImage()->getImage();
+              }) != value.end())
+            found = true;
+          break;
+        }
+        if (found) {
+          auto textureInput = value[_swapchain->getSwapchainIndex()];
+          textureInput->changeLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_GENERAL,
+                                     VK_IMAGE_ASPECT_COLOR_BIT, 1, 1,
+                                     renderFutures[i - 1].first->getCommandBuffers()[frameInFlight]);
+          flagWaitForSwapchain = false;
+        }
+      }
+    }
     // stage change or last iteration
     if (previousStage != graphPass->getStage()) {
-      // submit
+      // need to end command buffers before submit
+      std::vector<VkCommandBuffer> commandBufferRawSubmit;
+      for (auto& commandBuffer : commandBufferSubmit) {
+        commandBuffer->endCommands();
+        commandBufferRawSubmit.push_back(commandBuffer->getCommandBuffer());
+      }
+      // submit + semaphores
       VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                               .waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
                               .pWaitSemaphores = waitSemaphores.data(),
                               .pWaitDstStageMask = waitStages.data(),
-                              .commandBufferCount = (uint32_t)commandBufferSubmit.size(),
-                              .pCommandBuffers = commandBufferSubmit.data(),
+                              .commandBufferCount = (uint32_t)commandBufferRawSubmit.size(),
+                              .pCommandBuffers = commandBufferRawSubmit.data(),
                               .signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
                               .pSignalSemaphores = signalSemaphores.data()};
       if (previousStage == GraphPassStage::COMPUTE)
@@ -316,9 +374,56 @@ void RenderGraph::render() {
       signalSemaphores.clear();
       waitSemaphores.clear();
       waitStages.clear();
+    } else {
+      // put barrier if needed
+      // IMPORTANT: we should add any barrier to the previous stage because potentially all command buffer are already
+      // recorded. So we need to add barrier to the end of the previous command buffer.
+      for (auto [key, value] : graphPass->getTextureInputs()) {
+        auto textureInput = value[frameInFlight];
+        {
+          switch (graphPass->getStage()) {
+            case GraphPassStage::GRAPHIC: {
+              VkImageLayout newImageLayout = textureInput->getImageLayout();
+              VkImageLayout oldImageLayout = textureInput->getImageLayout();
+              VkImageMemoryBarrier imageMemoryBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                                      .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                                      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                                                      .oldLayout = oldImageLayout,
+                                                      .newLayout = newImageLayout,
+                                                      .image = textureInput->getImage(),
+                                                      .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
+              vkCmdPipelineBarrier(renderFutures[i - 1].first->getCommandBuffers()[frameInFlight]->getCommandBuffer(),
+                                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                   0, 0, nullptr, 0, nullptr, 1, &imageMemoryBarrier);
+              break;
+            }
+            case GraphPassStage::COMPUTE: {
+              VkImageLayout newImageLayout = textureInput->getImageLayout();
+              // the pass that writes to swapchain should use SRC_KHR layout as old
+              // it will be transfered back to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR due to RenderPass
+              VkImageLayout oldImageLayout = textureInput->getImageLayout();
+              VkImageMemoryBarrier colorBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                                .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                                                .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                                                .oldLayout = oldImageLayout,
+                                                .newLayout = newImageLayout,
+                                                .image = textureInput->getImage(),
+                                                .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                     .baseMipLevel = 0,
+                                                                     .levelCount = 1,
+                                                                     .baseArrayLayer = 0,
+                                                                     .layerCount = 1}};
+              vkCmdPipelineBarrier(renderFutures[i - 1].first->getCommandBuffers()[frameInFlight]->getCommandBuffer(),
+                                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0,
+                                   nullptr, 0, nullptr, 1, &colorBarrier);
+              break;
+            }
+          };
+        }
+      }
     }
 
-    commandBufferSubmit.push_back(graphPass->getCommandBuffers()[frameInFlight]->getCommandBuffer());
+    commandBufferSubmit.push_back(graphPass->getCommandBuffers()[frameInFlight]);
     for (auto& semaphores : graphPass->getSignalSemaphores())
       signalSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
 
@@ -339,13 +444,19 @@ void RenderGraph::render() {
 
     previousStage = graphPass->getStage();
   }
+  // need to end command buffers before submit
+  std::vector<VkCommandBuffer> commandBufferRawSubmit;
+  for (auto& commandBuffer : commandBufferSubmit) {
+    commandBuffer->endCommands();
+    commandBufferRawSubmit.push_back(commandBuffer->getCommandBuffer());
+  }
   // submit remaining commands
   VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                           .waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
                           .pWaitSemaphores = waitSemaphores.data(),
                           .pWaitDstStageMask = waitStages.data(),
-                          .commandBufferCount = (uint32_t)commandBufferSubmit.size(),
-                          .pCommandBuffers = commandBufferSubmit.data(),
+                          .commandBufferCount = (uint32_t)commandBufferRawSubmit.size(),
+                          .pCommandBuffers = commandBufferRawSubmit.data(),
                           .signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
                           .pSignalSemaphores = signalSemaphores.data()};
   if (previousStage == GraphPassStage::COMPUTE)

@@ -12,6 +12,7 @@ enum class GraphPassStage { GRAPHIC = 0, COMPUTE = 1, TRANSFER = 2 };
 
 class GraphPass {
  private:
+  std::string _name;
   GraphPassStage _stage;
   std::shared_ptr<EngineState> _engineState;
   // TODO: can contain either frameInFlight or number in swapchain targets, need to handle appropriately
@@ -28,7 +29,7 @@ class GraphPass {
   bool _end = false;
 
  public:
-  GraphPass(GraphPassStage stage, std::shared_ptr<EngineState> engineState);
+  GraphPass(std::string name, GraphPassStage stage, std::shared_ptr<EngineState> engineState);
   // handle attachments
   void addColorTarget(std::string name, std::vector<std::shared_ptr<Image>> images);
   void setDepthTarget(std::string name, std::shared_ptr<Image> image);
@@ -60,6 +61,7 @@ class GraphPass {
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> getVertexBufferInputs();
   std::map<std::string, std::vector<std::shared_ptr<Image>>> getTextureInputs();
   bool getEnd();
+  std::string getName();
   // set function that does render pass work
   void addRenderExecution(std::function<void(std::shared_ptr<CommandBuffer> commandBuffer)>);
   void execute();
@@ -67,15 +69,14 @@ class GraphPass {
 
 class RenderGraph {
  private:
-  std::map<std::string, std::shared_ptr<GraphPass>> _passes;
+  std::vector<std::shared_ptr<GraphPass>> _passes;
   std::shared_ptr<GraphPass> _passApplication;
   std::deque<std::shared_ptr<GraphPass>> _passesOrdered;
-  std ::shared_ptr<Swapchain> _swapchain;
+  std::shared_ptr<Swapchain> _swapchain;
   std::shared_ptr<EngineState> _engineState;
   std::shared_ptr<BS::thread_pool> _threadPool;
   // special semaphores
-  std::vector<std::shared_ptr<Semaphore>> _semaphoreRenderFinished, _semaphoreImageAvailable,
-      _semaphoreApplicationReady;
+  std::vector<std::shared_ptr<Semaphore>> _semaphoreRenderFinished, _semaphoreImageAvailable;
   std::vector<std::shared_ptr<Fence>> _fenceInFlight;
 
  public:

@@ -87,7 +87,6 @@ class Core {
   void _initializeTextures();
   void _initializeFramebuffer();
 
-  VkResult _getImageIndex();
   void _displayFrame();
   void _clearUnusedData();
   void _reset();

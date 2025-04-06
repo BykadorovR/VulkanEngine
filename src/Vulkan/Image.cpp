@@ -133,7 +133,6 @@ void Image::changeLayout(VkImageLayout oldLayout,
                          int mipMapLevels,
                          std::shared_ptr<CommandBuffer> commandBufferTransfer) {
   _imageLayout = newLayout;
-
   VkImageMemoryBarrier barrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
                                .oldLayout = oldLayout,
                                .newLayout = newLayout,
