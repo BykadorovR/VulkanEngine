@@ -20,6 +20,7 @@ class Main {
  private:
   std::shared_ptr<Core> _core;
   std::shared_ptr<CameraFly> _camera;
+  std::shared_ptr<GUI> _gui;
   std::shared_ptr<InputHandler> _inputHandler;
 
   std::shared_ptr<PointLight> _pointLightVertical, _pointLightHorizontal;

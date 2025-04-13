@@ -192,6 +192,7 @@ Main::Main() {
   _core = std::make_shared<Core>(settings);
   _core->initialize();
   _gui = _core->createGUI();
+  _core->createPostprocessing();
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _camera->setSpeed(0.05f, 0.01f);
@@ -202,10 +203,8 @@ Main::Main() {
 
   _pointLightVertical = _core->createPointLight();
   _pointLightVertical->setColor(glm::vec3(1.f, 1.f, 1.f));
-  //_core->createPointShadow(_pointLightVertical);
   _pointLightHorizontal = _core->createPointLight();
   _pointLightHorizontal->setColor(glm::vec3(1.f, 1.f, 1.f));
-  //_core->createPointShadow(_pointLightHorizontal);
 
   auto ambientLight = _core->createAmbientLight();
   ambientLight->setColor({0.5f, 0.5f, 0.5f});

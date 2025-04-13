@@ -51,7 +51,9 @@ Main::Main() {
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _core->createGUI();
+  _core->createPostprocessing();
+
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setSpeed(0.05f, 0.01f);
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
@@ -384,7 +386,6 @@ Main::Main() {
     sphereWireframePBR->setTranslate(glm::vec3(3.f, 6.f, 3.f));
     _core->addDrawable(sphereWireframePBR);
   }
-  _core->endRecording();
 
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset

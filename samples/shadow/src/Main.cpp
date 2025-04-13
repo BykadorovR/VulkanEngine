@@ -56,8 +56,10 @@ Main::Main() {
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   auto commandBufferTransfer = _core->getCommandBufferApplication();
-  _core->startRecording();
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_camera));
@@ -336,8 +338,6 @@ Main::Main() {
     _core->addShadowable(spriteTree);
   }
 
-  _core->endRecording();
-
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));
@@ -362,11 +362,11 @@ void Main::update() {
 
   auto [FPSLimited, FPSReal] = _core->getFPS();
   auto [widthScreen, heightScreen] = _core->getEngineState()->getSettings()->getResolution();
-  _core->getGUI()->startWindow("Help");
-  _core->getGUI()->setWindowPosition({20, 20});
-  _core->getGUI()->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
-  _core->getGUI()->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
-  if (_core->getGUI()->drawSlider(
+  _gui->startWindow("Help");
+  _gui->setWindowPosition({20, 20});
+  _gui->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
+  _gui->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
+  if (_gui->drawSlider(
           {{"Directional", &_directionalValue},
            {"Point horizontal", &_pointHorizontalValue},
            {"Point vertical", &_pointVerticalValue}},
@@ -375,16 +375,16 @@ void Main::update() {
     _pointLightHorizontal->setColor(glm::vec3(_pointHorizontalValue, _pointHorizontalValue, _pointHorizontalValue));
     _pointLightVertical->setColor(glm::vec3(_pointVerticalValue, _pointVerticalValue, _pointVerticalValue));
   }
-  _core->getGUI()->drawText({"Press 'c' to turn cursor on/off"});
+  _gui->drawText({"Press 'c' to turn cursor on/off"});
   auto eye = _camera->getEye();
   auto direction = _camera->getDirection();
-  if (_core->getGUI()->startTree("Coordinates")) {
-    _core->getGUI()->drawText({std::string("eye x: ") + std::format("{:.2f}", eye.x),
-                               std::string("eye y: ") + std::format("{:.2f}", eye.y),
-                               std::string("eye z: ") + std::format("{:.2f}", eye.z)});
-    _core->getGUI()->endTree();
+  if (_gui->startTree("Coordinates")) {
+    _gui->drawText({std::string("eye x: ") + std::format("{:.2f}", eye.x),
+                    std::string("eye y: ") + std::format("{:.2f}", eye.y),
+                    std::string("eye z: ") + std::format("{:.2f}", eye.z)});
+    _gui->endTree();
   }
-  _core->getGUI()->endWindow();
+  _gui->endWindow();
 }
 
 void Main::reset(int width, int height) { _camera->setAspect((float)width / (float)height); }

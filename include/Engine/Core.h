@@ -154,6 +154,8 @@ class Core {
   std::vector<std::shared_ptr<PointShadow>> getPointShadows();
   std::vector<std::shared_ptr<DirectionalShadow>> getDirectionalShadows();
   std::shared_ptr<Postprocessing> getPostprocessing();
+  std::shared_ptr<BlurCompute> getBloomBlur();
+  std::shared_ptr<GUI> getGUI();
 
   std::shared_ptr<EngineState> getEngineState();
   std::shared_ptr<GameState> getGameState();

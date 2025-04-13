@@ -51,7 +51,9 @@ Main::Main() {
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _camera->setSpeed(0.05f, 0.01f);
@@ -278,8 +280,6 @@ Main::Main() {
     _core->addDrawable(_capsule);
   }
 
-  _core->endRecording();
-
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));
@@ -319,7 +319,6 @@ void Main::update() {
   if (aabb->valid()) {
     auto min = aabb->getMin();
     auto max = aabb->getMax();
-    if (commandBuffer->getActive() == false) _core->startRecording();
     std::dynamic_pointer_cast<MeshCapsuleStatic>(_capsule->getMesh())
         ->reset((max - min).y - (max - min).z, (max - min).z / 2.f, _core->getCommandBufferApplication());
   }
@@ -335,7 +334,6 @@ void Main::update() {
   std::map<std::string, int*> materialType;
   materialType["##Type"] = &_typeIndex;
   if (_core->getGUI()->drawListBox({"Color", "Phong", "PBR"}, materialType, 3)) {
-    if (commandBuffer->getActive() == false) _core->startRecording();
     switch (_typeIndex) {
       case 0:
         _modelBottle->setMaterial(_materialModelBottleColor);
@@ -350,8 +348,6 @@ void Main::update() {
   }
 
   _core->getGUI()->endWindow();
-
-  if (commandBuffer->getActive()) _core->endRecording();
 }
 
 void Main::reset(int width, int height) { _camera->setAspect((float)width / (float)height); }

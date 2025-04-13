@@ -8,43 +8,7 @@ void Core::setAssetManager(AAssetManager* assetManager) { _assetManager = assetM
 void Core::setNativeWindow(ANativeWindow* window) { _nativeWindow = window; }
 #endif
 
-Core::Core(std::shared_ptr<Settings> settings) {
-  _engineState = std::make_shared<EngineState>(settings);
-#ifdef __ANDROID__
-  _engineState->setNativeWindow(_nativeWindow);
-  _engineState->setAssetManager(_assetManager);
-#endif
-  _engineState->initialize();
-  _swapchain = std::make_shared<Swapchain>(_engineState);
-  _pool = std::make_shared<BS::thread_pool>(settings->getThreadsInPool());
-  _renderGraph = std::make_shared<RenderGraph>(_swapchain, _pool, _engineState);
-  _timer = std::make_shared<Timer>(_engineState);
-  _timerFPSReal = std::make_shared<TimerFPS>();
-  _timerFPSLimited = std::make_shared<TimerFPS>();
-
-  _engineState->getDebugUtils()->setName("Queue graphic", VkObjectType::VK_OBJECT_TYPE_QUEUE,
-                                         _engineState->getDevice()->getQueue(vkb::QueueType::graphics));
-  _engineState->getDebugUtils()->setName("Queue present", VkObjectType::VK_OBJECT_TYPE_QUEUE,
-                                         _engineState->getDevice()->getQueue(vkb::QueueType::present));
-  _engineState->getDebugUtils()->setName("Queue compute", VkObjectType::VK_OBJECT_TYPE_QUEUE,
-                                         _engineState->getDevice()->getQueue(vkb::QueueType::compute));
-  {
-    _commandPoolApplication = std::make_shared<CommandPool>(vkb::QueueType::graphics, _engineState->getDevice());
-    _commandBufferApplication.resize(settings->getMaxFramesInFlight());
-    for (int i = 0; i < settings->getMaxFramesInFlight(); i++) {
-      _commandBufferApplication[i] = std::make_shared<CommandBuffer>(_commandPoolApplication,
-                                                                     _engineState->getDevice());
-      _engineState->getDebugUtils()->setName("Command buffer for appplication",
-                                             VkObjectType::VK_OBJECT_TYPE_COMMAND_BUFFER,
-                                             _commandBufferApplication[i]->getCommandBuffer());
-    }
-  }
-
-  _renderPassGraphic = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::GRAPHIC);
-  _renderPassShadowMap = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::SHADOW);
-  _renderPassDebug = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::GUI);
-  _renderPassBlur = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::BLUR);
-}
+Core::Core(std::shared_ptr<Settings> settings) { _engineState = std::make_shared<EngineState>(settings); }
 
 void Core::_initializeTextures() {
   auto settings = _engineState->getSettings();
@@ -105,6 +69,41 @@ void Core::_initializeFramebuffer() {
 
 void Core::initialize() {
   try {
+#ifdef __ANDROID__
+    _engineState->setNativeWindow(_nativeWindow);
+    _engineState->setAssetManager(_assetManager);
+#endif
+    _engineState->initialize();
+    auto settings = _engineState->getSettings();
+    _swapchain = std::make_shared<Swapchain>(_engineState);
+    _pool = std::make_shared<BS::thread_pool>(settings->getThreadsInPool());
+    _renderGraph = std::make_shared<RenderGraph>(_swapchain, _pool, _engineState);
+    _timer = std::make_shared<Timer>(_engineState);
+    _timerFPSReal = std::make_shared<TimerFPS>();
+    _timerFPSLimited = std::make_shared<TimerFPS>();
+
+    _engineState->getDebugUtils()->setName("Queue graphic", VkObjectType::VK_OBJECT_TYPE_QUEUE,
+                                           _engineState->getDevice()->getQueue(vkb::QueueType::graphics));
+    _engineState->getDebugUtils()->setName("Queue present", VkObjectType::VK_OBJECT_TYPE_QUEUE,
+                                           _engineState->getDevice()->getQueue(vkb::QueueType::present));
+    _engineState->getDebugUtils()->setName("Queue compute", VkObjectType::VK_OBJECT_TYPE_QUEUE,
+                                           _engineState->getDevice()->getQueue(vkb::QueueType::compute));
+    {
+      _commandPoolApplication = std::make_shared<CommandPool>(vkb::QueueType::graphics, _engineState->getDevice());
+      _commandBufferApplication.resize(settings->getMaxFramesInFlight());
+      for (int i = 0; i < settings->getMaxFramesInFlight(); i++) {
+        _commandBufferApplication[i] = std::make_shared<CommandBuffer>(_commandPoolApplication,
+                                                                       _engineState->getDevice());
+        _engineState->getDebugUtils()->setName("Command buffer for appplication",
+                                               VkObjectType::VK_OBJECT_TYPE_COMMAND_BUFFER,
+                                               _commandBufferApplication[i]->getCommandBuffer());
+      }
+    }
+
+    _renderPassGraphic = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::GRAPHIC);
+    _renderPassShadowMap = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::SHADOW);
+    _renderPassDebug = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::GUI);
+    _renderPassBlur = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::BLUR);
     int currentFrame = _engineState->getFrameInFlight();
     _commandBufferApplication[currentFrame]->beginCommands();
     // start transfer command buffer
@@ -1074,6 +1073,10 @@ std::vector<std::shared_ptr<DirectionalShadow>> Core::getDirectionalShadows() {
 }
 
 std::shared_ptr<Postprocessing> Core::getPostprocessing() { return _postprocessing; }
+
+std::shared_ptr<BlurCompute> Core::getBloomBlur() { return _blurCompute; }
+
+std::shared_ptr<GUI> Core::getGUI() { return _gui; }
 
 std::shared_ptr<EngineState> Core::getEngineState() { return _engineState; }
 

@@ -24,6 +24,7 @@ class InputHandler : public InputSubscriber {
 class Main {
  private:
   std::shared_ptr<Core> _core;
+  std::shared_ptr<GUI> _gui;
   std::shared_ptr<CameraFly> _cameraFly;
   std::shared_ptr<CameraRTS> _cameraRTS;
   std::shared_ptr<InputHandler> _inputHandler;

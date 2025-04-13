@@ -8,6 +8,7 @@
 class DebugVisualization {
  private:
   std::shared_ptr<Core> _core;
+  std::shared_ptr<GUI> _gui;
   std::vector<std::shared_ptr<Line>> _lineFrustum;
   std::shared_ptr<Sprite> _farPlaneCW, _farPlaneCCW;
   std::vector<std::shared_ptr<Model3D>> _pointLightModels, _directionalLightModels;

@@ -4,6 +4,8 @@
 DebugVisualization::DebugVisualization(std::shared_ptr<Camera> camera, std::shared_ptr<Core> core) {
   _camera = camera;
   _core = core;
+  _gui = _core->getGUI();
+
   auto state = core->getEngineState();
 
   for (auto elem : _core->getEngineState()->getSettings()->getAttenuations()) {
@@ -107,7 +109,6 @@ void DebugVisualization::_drawFrustumLines(glm::vec3 nearPart, glm::vec3 farPart
 
 void DebugVisualization::_drawShadowMaps() {
   auto currentFrame = _core->getEngineState()->getFrameInFlight();
-  auto gui = _core->getGUI();
   if (_showDepth) {
     if (_initializedDepth == false) {
       for (int i = 0; i < _core->getDirectionalLights().size(); i++) {
@@ -129,7 +130,7 @@ void DebugVisualization::_drawShadowMaps() {
     if (_core->getDirectionalLights().size() + _core->getPointLights().size() > 0) {
       std::map<std::string, int*> toggleShadows;
       toggleShadows["##Shadows"] = &_shadowMapIndex;
-      gui->drawListBox(_shadowKeys, toggleShadows, _shadowKeys.size());
+      _gui->drawListBox(_shadowKeys, toggleShadows, _shadowKeys.size());
 
       std::shared_ptr<Texture> currentTexture;
       // check if directional
@@ -193,50 +194,48 @@ void DebugVisualization::update() {
 }
 
 void DebugVisualization::draw() {
-  auto gui = _core->getGUI();
-
   auto [resX, resY] = _core->getEngineState()->getSettings()->getResolution();
   auto eye = _camera->getEye();
   auto direction = _camera->getDirection();
-  if (gui->startTree("Coordinates")) {
-    gui->drawText({std::string("eye x: ") + std::format("{:.2f}", eye.x),
-                   std::string("eye y: ") + std::format("{:.2f}", eye.y),
-                   std::string("eye z: ") + std::format("{:.2f}", eye.z)});
-    gui->drawText({std::string("dir x: ") + std::format("{:.2f}", direction.x),
-                   std::string("dir y: ") + std::format("{:.2f}", direction.y),
-                   std::string("dir z: ") + std::format("{:.2f}", direction.z)});
-    if (gui->drawButton("Save camera")) {
+  if (_gui->startTree("Coordinates")) {
+    _gui->drawText({std::string("eye x: ") + std::format("{:.2f}", eye.x),
+                    std::string("eye y: ") + std::format("{:.2f}", eye.y),
+                    std::string("eye z: ") + std::format("{:.2f}", eye.z)});
+    _gui->drawText({std::string("dir x: ") + std::format("{:.2f}", direction.x),
+                    std::string("dir y: ") + std::format("{:.2f}", direction.y),
+                    std::string("dir z: ") + std::format("{:.2f}", direction.z)});
+    if (_gui->drawButton("Save camera")) {
       _eyeSave = _camera->getEye();
       _dirSave = _camera->getDirection();
       _upSave = _camera->getUp();
       _angles = std::dynamic_pointer_cast<CameraFly>(_camera)->getAngles();
     }
 
-    if (gui->drawButton("Load camera")) {
+    if (_gui->drawButton("Load camera")) {
       _camera->setViewParameters(_eyeSave, _dirSave, _upSave);
       std::dynamic_pointer_cast<CameraFly>(_camera)->setAngles(_angles.x, _angles.y, _angles.z);
     }
-    gui->endTree();
+    _gui->endTree();
   }
 
-  if (gui->startTree("Frustum")) {
+  if (_gui->startTree("Frustum")) {
     std::string buttonText = "Hide frustum";
     if (_frustumDraw == false) {
       buttonText = "Show frustum";
     }
 
-    if (gui->drawInputFloat({{"near", &_near}})) {
+    if (_gui->drawInputFloat({{"near", &_near}})) {
       auto cameraFly = std::dynamic_pointer_cast<CameraFly>(_camera);
       cameraFly->setProjectionParameters(cameraFly->getFOV(), _near, _camera->getFar());
     }
 
-    if (gui->drawInputFloat({{"far", &_far}})) {
+    if (_gui->drawInputFloat({{"far", &_far}})) {
       auto cameraFly = std::dynamic_pointer_cast<CameraFly>(_camera);
       cameraFly->setProjectionParameters(cameraFly->getFOV(), _camera->getNear(), _far);
     }
 
-    auto clicked = gui->drawButton(buttonText);
-    gui->drawCheckbox({{"Show planes", &_showPlanes}});
+    auto clicked = _gui->drawButton(buttonText);
+    _gui->drawCheckbox({{"Show planes", &_showPlanes}});
     if (_frustumDraw && _showPlanes) {
       if (_planesRegistered == false) {
         _core->addDrawable(_farPlaneCW);
@@ -296,38 +295,37 @@ void DebugVisualization::draw() {
       }
     }
     _drawFrustum();
-    gui->endTree();
+    _gui->endTree();
   }
-  if (gui->startTree("Postprocessing")) {
+  if (_gui->startTree("Postprocessing")) {
     float gamma = _core->getPostprocessing()->getGamma();
-    if (_core->getGUI()->drawInputFloat({{"gamma", &gamma}})) _core->getPostprocessing()->setGamma(gamma);
+    if (_gui->drawInputFloat({{"gamma", &gamma}})) _core->getPostprocessing()->setGamma(gamma);
     float exposure = _core->getPostprocessing()->getExposure();
-    if (_core->getGUI()->drawInputFloat({{"exposure", &exposure}})) _core->getPostprocessing()->setExposure(exposure);
+    if (_gui->drawInputFloat({{"exposure", &exposure}})) _core->getPostprocessing()->setExposure(exposure);
     int blurKernelSize = _core->getBloomBlur()->getKernelSize();
-    if (_core->getGUI()->drawInputInt({{"Kernel", &blurKernelSize}}))
-      _core->getBloomBlur()->setKernelSize(blurKernelSize);
+    if (_gui->drawInputInt({{"Kernel", &blurKernelSize}})) _core->getBloomBlur()->setKernelSize(blurKernelSize);
     int blurSigma = _core->getBloomBlur()->getSigma();
-    if (_core->getGUI()->drawInputInt({{"Sigma", &blurSigma}})) _core->getBloomBlur()->setSigma(blurSigma);
+    if (_gui->drawInputInt({{"Sigma", &blurSigma}})) _core->getBloomBlur()->setSigma(blurSigma);
     int bloomPasses = _core->getEngineState()->getSettings()->getBloomPasses();
-    if (_core->getGUI()->drawInputInt({{"Passes", &bloomPasses}}))
+    if (_gui->drawInputInt({{"Passes", &bloomPasses}}))
       _core->getEngineState()->getSettings()->setBloomPasses(bloomPasses);
 
-    gui->drawInputFloat({{"R", &_R}});
+    _gui->drawInputFloat({{"R", &_R}});
     _R = std::min(_R, 1.f);
     _R = std::max(_R, 0.f);
-    gui->drawInputFloat({{"G", &_G}});
+    _gui->drawInputFloat({{"G", &_G}});
     _G = std::min(_G, 1.f);
     _G = std::max(_G, 0.f);
-    gui->drawInputFloat({{"B", &_B}});
+    _gui->drawInputFloat({{"B", &_B}});
     _B = std::min(_B, 1.f);
     _B = std::max(_B, 0.f);
     _core->getEngineState()->getSettings()->setClearColor({_R, _G, _B, 1.f});
-    gui->endTree();
+    _gui->endTree();
   }
 
-  if (gui->startTree("Light")) {
-    if (_core->getGUI()->drawSlider({{"Directional", &_directionalValue}, {"Point", &_pointValue}},
-                                    {{"Directional", {0.f, 20.f}}, {"Point", {0.f, 20.f}}})) {
+  if (_gui->startTree("Light")) {
+    if (_gui->drawSlider({{"Directional", &_directionalValue}, {"Point", &_pointValue}},
+                         {{"Directional", {0.f, 20.f}}, {"Point", {0.f, 20.f}}})) {
       for (auto& light : _core->getDirectionalLights()) {
         light->setColor(glm::vec3(_directionalValue, _directionalValue, _directionalValue));
       }
@@ -338,15 +336,15 @@ void DebugVisualization::draw() {
 
     std::map<std::string, bool*> toggle;
     toggle["Lights"] = &_showLights;
-    gui->drawCheckbox(toggle);
+    _gui->drawCheckbox(toggle);
     if (_showLights) {
       std::map<std::string, bool*> toggle;
       toggle["Spheres"] = &_enableSpheres;
-      gui->drawCheckbox(toggle);
+      _gui->drawCheckbox(toggle);
       if (_enableSpheres) {
         std::map<std::string, int*> toggleSpheres;
         toggleSpheres["##Spheres"] = &_lightSpheresIndex;
-        gui->drawListBox(_attenuationKeys, toggleSpheres, 4);
+        _gui->drawListBox(_attenuationKeys, toggleSpheres, 4);
       }
       for (int i = 0; i < _core->getPointLights().size(); i++) {
         if (_registerLights) _core->addDrawable(_pointLightModels[i]);
@@ -387,9 +385,9 @@ void DebugVisualization::draw() {
     }
     std::map<std::string, bool*> toggleDepth;
     toggleDepth["Depth"] = &_showDepth;
-    gui->drawCheckbox(toggleDepth);
+    _gui->drawCheckbox(toggleDepth);
     _drawShadowMaps();
 
-    gui->endTree();
+    _gui->endTree();
   }
 }

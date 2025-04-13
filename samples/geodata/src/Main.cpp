@@ -102,7 +102,9 @@ Main::Main() {
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   _inputHandler = std::make_shared<InputHandler>(_core);
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_inputHandler));
 
@@ -235,8 +237,6 @@ Main::Main() {
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_cameraRTS));
   _core->setCamera(_cameraRTS);
 
-  _core->endRecording();
-
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));
@@ -318,9 +318,7 @@ void Main::update() {
   if (_core->getGUI()->startTree("Toggles")) {
     std::map<std::string, int*> patchesNumber{{"Patch x", &_patchX}, {"Patch y", &_patchY}};
     if (_core->getGUI()->drawInputInt(patchesNumber)) {
-      _core->startRecording();
       _createTerrainColor();
-      _core->endRecording();
     }
 
     std::map<std::string, int*> tesselationLevels{{"Tesselation min", &_minTessellationLevel},

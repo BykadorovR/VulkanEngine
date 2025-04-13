@@ -55,7 +55,9 @@ Main::Main() {
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setSpeed(0.05f, 0.01f);
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
@@ -117,7 +119,6 @@ Main::Main() {
     _core->addDrawable(modelPBR);
   }
 
-  _core->endRecording();
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));

@@ -52,7 +52,9 @@ Main::Main() {
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setSpeed(0.05f, 0.01f);
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
@@ -94,7 +96,6 @@ Main::Main() {
     auto particleSystem = _core->createParticleSystem(particles, particleTexture);
     particleSystem->setScale(glm::vec3(0.5f, 0.5f, 0.5f));
     particleSystem->setTranslate(glm::vec3(0.f, 0.f, 2.f));
-    _core->addParticleSystem(particleSystem);
   }
   {
     // Initial particle positions on a circle
@@ -129,9 +130,7 @@ Main::Main() {
     auto particleSystem = _core->createParticleSystem(particles, particleTexture);
     particleSystem->setScale(glm::vec3(0.5f, 0.5f, 0.5f));
     particleSystem->setTranslate(glm::vec3(0.5f, 0.f, 2.f));
-    _core->addParticleSystem(particleSystem);
   }
-  _core->endRecording();
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));

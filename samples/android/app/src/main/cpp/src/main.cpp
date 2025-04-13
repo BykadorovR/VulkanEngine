@@ -132,7 +132,6 @@ void update() {
     std::map<std::string, int*> terrainType;
     terrainType["##Type"] = &_typeIndex;
     if (_core->getGUI()->drawListBox({"Color", "Phong", "PBR"}, terrainType, 3)) {
-      _core->startRecording();
       _core->removeDrawable(_terrain);
       switch (_typeIndex) {
         case 0:
@@ -150,7 +149,6 @@ void update() {
           break;
       }
       _core->addDrawable(_terrain);
-      _core->endRecording();
     }
     _core->getGUI()->endTree();
   }
@@ -178,7 +176,7 @@ void update() {
 
 void initialize() {
   int mipMapLevels = 4;
-
+  ;
   auto settings = std::make_shared<Settings>();
   settings->setName("Sprite");
   settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
@@ -206,9 +204,11 @@ void initialize() {
   _core->setAssetManager(_app->activity->assetManager);
   _core->setNativeWindow(_app->window);
   _core->initialize();
+  _core->createGUI();
+  _core->createPostprocessing();
+
   auto commandBufferTransfer = _core->getCommandBufferApplication();
 
-  _core->startRecording();
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _camera->setSpeed(0.1f, 0.05f);
@@ -457,7 +457,6 @@ void initialize() {
   auto particleSystem = _core->createParticleSystem(particles, particleTexture);
   particleSystem->setScale(glm::vec3(0.5f, 0.5f, 0.5f));
   particleSystem->setTranslate(glm::vec3(0.f, 0.f, 2.f));
-  _core->addParticleSystem(particleSystem);
 
   std::vector<std::shared_ptr<Shape3D>> spheres(6);
   // non HDR
@@ -610,7 +609,6 @@ void initialize() {
     _model3DPhysics = std::make_shared<Model3DPhysics>(glm::vec3(-4.f, -1.f, -3.f), (max - min) / 2.f, _physicsManager);
   }
 
-  _core->endRecording();
   _core->registerUpdate(std::bind(&update));
 
   _initialized = true;

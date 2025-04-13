@@ -268,10 +268,10 @@ void RenderGraph::calculate() {
   // set semaphores between passes
   bool flagWaitForSwapchain = true;
   bool queueTypeChange = false;
-  GraphPassStage passStagePrevious = _passApplication->getStage();
+  std::optional<GraphPassStage> passStagePrevious;
   for (int i = 0; i < _passesOrdered.size(); i++) {
     auto node = _passesOrdered[i];
-    if (node->getStage() != passStagePrevious) queueTypeChange = true;
+    if (passStagePrevious.has_value() && node->getStage() != passStagePrevious) queueTypeChange = true;
     // signal semaphore for the previous pass
     // wait semaphore for the current pass
     if (queueTypeChange) {
@@ -322,13 +322,11 @@ void RenderGraph::render() {
   std::vector<std::shared_ptr<CommandBuffer>> commandBufferSubmit;
   std::vector<VkSemaphore> signalSemaphores;
   std::vector<VkSemaphore> waitSemaphores;
-  std::vector<VkPipelineStageFlags> waitStages;
   // first submit application
   {
     for (auto& semaphores : _passApplication->getSignalSemaphores()) {
       signalSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
       waitSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
-      waitStages.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     }
     // need to change the layout from SRC_KHR to GENERAL
     auto swapchainImageViews = _swapchain->getImageViews();
@@ -336,8 +334,6 @@ void RenderGraph::render() {
     textureInput->getImage()->changeLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_GENERAL,
                                            VK_IMAGE_ASPECT_COLOR_BIT, 1, 1,
                                            _passApplication->getCommandBuffers()[frameInFlight]);
-    std::cout << "Change layout: " << textureInput->getImage()->getImage()
-              << ", from: VK_IMAGE_LAYOUT_PRESENT_SRC_KHR to VK_IMAGE_LAYOUT_GENERAL" << std::endl;
     // need to end command buffers before submit
     _passApplication->getCommandBuffers()[frameInFlight]->endCommands();
     VkSubmitInfo submitInfo{
@@ -347,24 +343,28 @@ void RenderGraph::render() {
         .signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
         .pSignalSemaphores = signalSemaphores.data()};
     vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo, VK_NULL_HANDLE);
-    std::cout << "Submit command buffer for pass: " << _passApplication << std::endl;
     signalSemaphores.clear();
   }
   // process rest of the stages
-  GraphPassStage previousStage = _passApplication->getStage();
+  std::optional<GraphPassStage> previousStage;
   for (int i = 0; i < renderFutures.size(); i++) {
     std::shared_ptr<GraphPass> graphPass = renderFutures[i].first;
     std::future<void> renderFuture = std::move(renderFutures[i].second);
     if (renderFuture.valid()) renderFuture.get();
-    std::cout << "Handling: " << graphPass->getName() << std::endl;
     // stage change or last iteration
-    if (previousStage != graphPass->getStage()) {
+    if (previousStage.has_value() && previousStage != graphPass->getStage()) {
       // need to end command buffers before submit
       std::vector<VkCommandBuffer> commandBufferRawSubmit;
       for (auto& commandBuffer : commandBufferSubmit) {
         commandBuffer->endCommands();
         commandBufferRawSubmit.push_back(commandBuffer->getCommandBuffer());
       }
+
+      std::vector<VkPipelineStageFlags> waitStages(waitSemaphores.size());
+      if (previousStage == GraphPassStage::COMPUTE)
+        for (auto& waitStage : waitStages) waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+      else
+        for (auto& waitStage : waitStages) waitStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
       // submit + semaphores
       VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                               .waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
@@ -379,89 +379,17 @@ void RenderGraph::render() {
       else
         vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo, VK_NULL_HANDLE);
       //
-      std::cout << "Submit command buffer for pass: " << graphPass << std::endl;
       commandBufferSubmit.clear();
       signalSemaphores.clear();
       waitSemaphores.clear();
       waitStages.clear();
     }
-    // else {
-    //   // put barrier if needed
-    //   // IMPORTANT: we should add any barrier to the previous stage because potentially all command buffer are
-    //   already
-    //   // recorded. So we need to add barrier to the end of the previous command buffer.
-    //   for (auto [key, value] : graphPass->getTextureInputs()) {
-    //     auto textureInput = value[frameInFlight];
-    //     {
-    //       switch (graphPass->getStage()) {
-    //         case GraphPassStage::GRAPHIC: {
-    //           VkImageLayout newImageLayout = textureInput->getImageLayout();
-    //           VkImageLayout oldImageLayout = textureInput->getImageLayout();
-    //           VkImageMemoryBarrier imageMemoryBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-    //                                                   .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-    //                                                   .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-    //                                                   .oldLayout = oldImageLayout,
-    //                                                   .newLayout = newImageLayout,
-    //                                                   .image = textureInput->getImage(),
-    //                                                   .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
-    //           vkCmdPipelineBarrier(renderFutures[i -
-    //           1].first->getCommandBuffers()[frameInFlight]->getCommandBuffer(),
-    //                                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-    //                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
-    //                                &imageMemoryBarrier);
-    //           std::cout << "Change layout: " << key << " " << textureInput->getImage() << ", from: " <<
-    //           oldImageLayout
-    //                     << " to "
-    //                     << newImageLayout << std::endl;
-    //           break;
-    //         }
-    //         case GraphPassStage::COMPUTE: {
-    //           VkImageLayout newImageLayout = textureInput->getImageLayout();
-    //           // the pass that writes to swapchain should use SRC_KHR layout as old
-    //           // it will be transfered back to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR due to RenderPass
-    //           VkImageLayout oldImageLayout = textureInput->getImageLayout();
-    //           VkImageMemoryBarrier colorBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-    //                                             .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-    //                                             .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-    //                                             .oldLayout = oldImageLayout,
-    //                                             .newLayout = newImageLayout,
-    //                                             .image = textureInput->getImage(),
-    //                                             .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-    //                                                                  .baseMipLevel = 0,
-    //                                                                  .levelCount = 1,
-    //                                                                  .baseArrayLayer = 0,
-    //                                                                  .layerCount = 1}};
-    //           vkCmdPipelineBarrier(renderFutures[i -
-    //           1].first->getCommandBuffers()[frameInFlight]->getCommandBuffer(),
-    //                                VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0,
-    //                                nullptr, 0, nullptr, 1, &colorBarrier);
-    //           std::cout << "Change layout: " << key << " " << textureInput->getImage() << ", from: " <<
-    //           oldImageLayout
-    //                     << " to "
-    //                     << newImageLayout << std::endl;
-    //           break;
-    //         }
-    //       };
-    //     }
-    //   }
-    // }
 
     commandBufferSubmit.push_back(graphPass->getCommandBuffers()[frameInFlight]);
     for (auto& semaphores : graphPass->getSignalSemaphores())
       signalSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
 
     for (auto& semaphores : graphPass->getWaitSemaphores()) {
-      switch (graphPass->getStage()) {
-        case GraphPassStage::COMPUTE:
-          waitStages.push_back(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-          break;
-        case GraphPassStage::GRAPHIC:
-          waitStages.push_back(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-          break;
-        case GraphPassStage::TRANSFER:
-          waitStages.push_back(VK_PIPELINE_STAGE_TRANSFER_BIT);
-          break;
-      };
       waitSemaphores.push_back(semaphores[frameInFlight]->getSemaphore());
     }
 
@@ -473,6 +401,12 @@ void RenderGraph::render() {
     commandBuffer->endCommands();
     commandBufferRawSubmit.push_back(commandBuffer->getCommandBuffer());
   }
+
+  std::vector<VkPipelineStageFlags> waitStages(waitSemaphores.size());
+  if (previousStage == GraphPassStage::COMPUTE)
+    for (auto& waitStage : waitStages) waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+  else
+    for (auto& waitStage : waitStages) waitStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
   // submit remaining commands
   VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                           .waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
@@ -488,5 +422,4 @@ void RenderGraph::render() {
   else
     vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo,
                   _fenceInFlight[frameInFlight]->getFence());
-  std::cout << "Submit command buffer for last pass" << std::endl;
 }

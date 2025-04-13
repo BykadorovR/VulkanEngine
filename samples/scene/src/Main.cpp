@@ -104,7 +104,8 @@ Main::Main() {
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+
   // start transfer command buffer
   auto commandBufferTransfer = _core->getCommandBufferApplication();
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
@@ -133,7 +134,8 @@ Main::Main() {
                              core->getResourceManager()->getTextureZero());
   };
 
-  auto postprocessing = _core->getPostprocessing();
+  auto postprocessing = _core->createPostprocessing();
+  _core->createBloomBlur();
 
   _pointLightHorizontal = _core->createPointLight();
   _core->createPointShadow(_pointLightHorizontal);
@@ -370,7 +372,6 @@ Main::Main() {
   auto particleSystem = _core->createParticleSystem(particles, particleTexture);
   particleSystem->setTranslate(glm::vec3(0.f, 0.f, 2.f));
   particleSystem->setScale(glm::vec3(0.5f, 0.5f, 0.5f));
-  _core->addParticleSystem(particleSystem);
 
   std::vector<std::shared_ptr<Shape3D>> spheres(6);
   // non HDR
@@ -476,8 +477,6 @@ Main::Main() {
   spriteBRDF->setTranslate(glm::vec3(5.f, 3.f, 1.f));
   _core->addDrawable(spriteBRDF);
 
-  _core->endRecording();
-
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));
@@ -495,19 +494,18 @@ void Main::update() {
 
   auto [FPSLimited, FPSReal] = _core->getFPS();
   auto [widthScreen, heightScreen] = _core->getEngineState()->getSettings()->getResolution();
-  _core->getGUI()->startWindow("Help");
-  _core->getGUI()->setWindowPosition({20, 20});
-  if (_core->getGUI()->startTree("Main")) {
-    _core->getGUI()->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
-    _core->getGUI()->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
-    _core->getGUI()->drawText({"Press 'c' to turn cursor on/off"});
-    _core->getGUI()->endTree();
+  _gui->startWindow("Help");
+  _gui->setWindowPosition({20, 20});
+  if (_gui->startTree("Main")) {
+    _gui->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
+    _gui->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
+    _gui->drawText({"Press 'c' to turn cursor on/off"});
+    _gui->endTree();
   }
-  if (_core->getGUI()->startTree("Terrain", false)) {
+  if (_gui->startTree("Terrain", false)) {
     std::map<std::string, int*> terrainType;
     terrainType["##Type"] = &_typeIndex;
-    if (_core->getGUI()->drawListBox({"Color", "Phong", "PBR"}, terrainType, 3)) {
-      _core->startRecording();
+    if (_gui->drawListBox({"Color", "Phong", "PBR"}, terrainType, 3)) {
       switch (_typeIndex) {
         case 0:
           _terrain->setMaterial(_materialColor);
@@ -519,17 +517,16 @@ void Main::update() {
           _terrain->setMaterial(_materialPBR);
           break;
       }
-      _core->endRecording();
     }
-    _core->getGUI()->endTree();
+    _gui->endTree();
   }
 
   _debugVisualization->update();
-  if (_core->getGUI()->startTree("Debug", false)) {
+  if (_gui->startTree("Debug", false)) {
     _debugVisualization->draw();
-    _core->getGUI()->endTree();
+    _gui->endTree();
   }
-  _core->getGUI()->endWindow();
+  _gui->endWindow();
 }
 
 void Main::reset(int width, int height) { _camera->setAspect((float)width / (float)height); }
