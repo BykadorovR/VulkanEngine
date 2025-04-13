@@ -28,13 +28,13 @@ RenderPassManager::RenderPassManager(std::shared_ptr<Settings> settings, std::sh
   // initialize graphic pass
   {
     std::vector<VkAttachmentDescription> colorDescription{
-        {.format = settings->getGraphicColorFormat(),
+        {.format = settings->getSwapchainColorFormat(),
          .samples = VK_SAMPLE_COUNT_1_BIT,
          .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
          .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
          .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
          .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+         .initialLayout = VK_IMAGE_LAYOUT_GENERAL,
          // goes to bloom (not blur) postprocessing as input image
          .finalLayout = VK_IMAGE_LAYOUT_GENERAL},
         {.format = settings->getGraphicColorFormat(),

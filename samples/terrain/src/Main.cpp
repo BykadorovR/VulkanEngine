@@ -133,12 +133,12 @@ void Main::_createTerrainDebug(std::string path) {
   switch (_interpolationMode) {
     case InrepolationMode::INTERPOLATION:
       _terrainDebug = std::make_shared<TerrainInterpolationDebug>(
-          _core->loadImageCPU(path), std::pair{_patchX, _patchY}, _core->getCommandBufferApplication(), _core->getGUI(),
+          _core->loadImageCPU(path), std::pair{_patchX, _patchY}, _core->getCommandBufferApplication(), _gui,
           _core->getGameState(), _core->getEngineState());
       break;
     case InrepolationMode::COMPOSITION:
       _terrainDebug = std::make_shared<TerrainCompositionDebug>(_core->loadImageCPU(path), std::pair{_patchX, _patchY},
-                                                                _core->getCommandBufferApplication(), _core->getGUI(),
+                                                                _core->getCommandBufferApplication(), _gui,
                                                                 _core->getGameState(), _core->getEngineState());
       break;
   }
@@ -191,7 +191,7 @@ Main::Main() {
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _camera->setSpeed(0.05f, 0.01f);
@@ -202,11 +202,13 @@ Main::Main() {
 
   _pointLightVertical = _core->createPointLight();
   _pointLightVertical->setColor(glm::vec3(1.f, 1.f, 1.f));
+  //_core->createPointShadow(_pointLightVertical);
   _pointLightHorizontal = _core->createPointLight();
   _pointLightHorizontal->setColor(glm::vec3(1.f, 1.f, 1.f));
+  //_core->createPointShadow(_pointLightHorizontal);
 
   auto ambientLight = _core->createAmbientLight();
-  ambientLight->setColor({0.1f, 0.1f, 0.1f});
+  ambientLight->setColor({0.5f, 0.5f, 0.5f});
   // cube colored light
   auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
   meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
@@ -367,14 +369,12 @@ Main::Main() {
 
   _createTerrainDebug("../assets/heightmap.png");
 
-  _core->endRecording();
-
-  _core->registerUpdate(std::bind(&Main::update, this));
+  _core->registerUpdate(std::bind(&Main::update, this, std::placeholders::_1));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));
 }
 
-void Main::update() {
+void Main::update(std::shared_ptr<CommandBuffer> commandBuffer) {
   static float i = 0;
   // update light position
   float radius = 15.f;
@@ -395,19 +395,18 @@ void Main::update() {
   angleVertical += 0.1f;
   auto [FPSLimited, FPSReal] = _core->getFPS();
   auto [widthScreen, heightScreen] = _core->getEngineState()->getSettings()->getResolution();
-  _core->getGUI()->startWindow("Terrain");
-  _core->getGUI()->setWindowPosition({20, 20});
-  if (_core->getGUI()->startTree("Info")) {
-    _core->getGUI()->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
-    _core->getGUI()->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
-    _core->getGUI()->drawText({"Press 'c' to turn cursor on/off"});
-    _core->getGUI()->endTree();
+  _gui->startWindow("Terrain");
+  _gui->setWindowPosition({20, 20});
+  if (_gui->startTree("Info")) {
+    _gui->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
+    _gui->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
+    _gui->drawText({"Press 'c' to turn cursor on/off"});
+    _gui->endTree();
   }
-  if (_core->getGUI()->startTree("Toggles")) {
+  if (_gui->startTree("Toggles")) {
     std::map<std::string, int*> terrainType;
     terrainType["##Type"] = &_typeIndex;
-    if (_core->getGUI()->drawListBox({"Color", "Phong", "PBR"}, terrainType, 3)) {
-      if (_core->getCommandBufferApplication()->getActive() == false) _core->startRecording();
+    if (_gui->drawListBox({"Color", "Phong", "PBR"}, terrainType, 3)) {
       switch (_typeIndex) {
         case 0:
           _terrain->setMaterial(_materialColor);
@@ -422,8 +421,7 @@ void Main::update() {
     }
 
     std::map<std::string, int*> patchesNumber{{"Patch x", &_patchX}, {"Patch y", &_patchY}};
-    if (_core->getGUI()->drawInputInt(patchesNumber)) {
-      if (_core->getCommandBufferApplication()->getActive() == false) _core->startRecording();
+    if (_gui->drawInputInt(patchesNumber)) {
       if (_showTerrain) _core->removeDrawable(_terrain);
       switch (_typeIndex) {
         case 0:
@@ -441,13 +439,13 @@ void Main::update() {
 
     std::map<std::string, int*> tesselationLevels{{"Tesselation min", &_minTessellationLevel},
                                                   {"Tesselation max", &_maxTessellationLevel}};
-    if (_core->getGUI()->drawInputInt(tesselationLevels)) {
+    if (_gui->drawInputInt(tesselationLevels)) {
       _terrain->setTessellationLevel(_minTessellationLevel, _maxTessellationLevel);
     }
 
     std::map<std::string, int*> interpolationType;
     interpolationType["##Interpolation"] = &_interpolationIndex;
-    if (_core->getGUI()->drawListBox({"Interpolation", "Composition"}, interpolationType, 2)) {
+    if (_gui->drawListBox({"Interpolation", "Composition"}, interpolationType, 2)) {
       switch (_interpolationIndex) {
         case 0:
           _interpolationMode = InrepolationMode::INTERPOLATION;
@@ -456,7 +454,6 @@ void Main::update() {
           _interpolationMode = InrepolationMode::COMPOSITION;
           break;
       }
-      if (_core->getCommandBufferApplication()->getActive() == false) _core->startRecording();
       if (_showTerrain) _core->removeDrawable(_terrain);
       switch (_typeIndex) {
         case 0:
@@ -476,10 +473,9 @@ void Main::update() {
       if (_showDebug) _core->addDrawable(_terrainDebug);
     }
 
-    _core->getGUI()->drawInputText("##Path", _terrainPath, sizeof(_terrainPath));
+    _gui->drawInputText("##Path", _terrainPath, sizeof(_terrainPath));
 
-    if (_core->getGUI()->drawButton("Load terrain")) {
-      if (_core->getCommandBufferApplication()->getActive() == false) _core->startRecording();
+    if (_gui->drawButton("Load terrain")) {
       if (_showTerrain) _core->removeDrawable(_terrain);
       _loadTerrain(std::string(_terrainPath) + ".json");
       switch (_typeIndex) {
@@ -496,17 +492,17 @@ void Main::update() {
       if (_showTerrain) _core->addDrawable(_terrain);
     }
 
-    _core->getGUI()->endTree();
+    _gui->endTree();
   }
 
-  if (_core->getGUI()->drawCheckbox({{"Show Terrain", &_showTerrain}})) {
+  if (_gui->drawCheckbox({{"Show Terrain", &_showTerrain}})) {
     if (_showTerrain == false) {
       _core->removeDrawable(_terrain);
     } else {
       _core->addDrawable(_terrain);
     }
   }
-  if (_core->getGUI()->drawCheckbox({{"Show Debug", &_showDebug}})) {
+  if (_gui->drawCheckbox({{"Show Debug", &_showDebug}})) {
     if (_showDebug == false) {
       _core->removeDrawable(_terrainDebug);
       _core->removeDrawable(_terrainCPU);
@@ -515,7 +511,7 @@ void Main::update() {
       _core->addDrawable(_terrainCPU);
     }
   }
-  _core->getGUI()->endWindow();
+  _gui->endWindow();
 
   auto hitPosition = _terrainDebug->getHitCoords();
   if (hitPosition) {
@@ -524,14 +520,11 @@ void Main::update() {
   }
 
   if (_showDebug) {
-    _core->getGUI()->startWindow("Editor");
-    _core->getGUI()->setWindowPosition({widthScreen - std::get<0>(_core->getGUI()->getWindowSize()) - 20, 20});
-    if (_core->getCommandBufferApplication()->getActive() == false) _core->startRecording();
+    _gui->startWindow("Editor");
+    _gui->setWindowPosition({widthScreen - std::get<0>(_gui->getWindowSize()) - 20, 20});
     _terrainDebug->drawDebug(_core->getCommandBufferApplication());
-    _core->getGUI()->endWindow();
+    _gui->endWindow();
   }
-
-  if (_core->getCommandBufferApplication()->getActive()) _core->endRecording();
 }
 
 void Main::reset(int width, int height) { _camera->setAspect((float)width / (float)height); }

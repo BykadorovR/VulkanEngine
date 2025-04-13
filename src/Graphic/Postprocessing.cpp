@@ -6,16 +6,16 @@ struct ComputePush {
   int enableBloom;
 };
 
-void Postprocessing::_initialize(std::vector<std::shared_ptr<Texture>> src,
+void Postprocessing::_initialize(std::vector<std::shared_ptr<ImageView>> src,
                                  std::vector<std::shared_ptr<Texture>> blur,
                                  std::vector<std::shared_ptr<ImageView>> dst) {
-  for (int i = 0; i < src.size(); i++) {
+  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
     for (int j = 0; j < dst.size(); j++) {
       _descriptorSet[std::pair(i, j)] = std::make_shared<DescriptorSet>(_textureLayout, _engineState);
       std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
           {0,
-           {VkDescriptorImageInfo{.imageView = src[i]->getImageView()->getImageView(),
-                                  .imageLayout = src[i]->getImageView()->getImage()->getImageLayout()}}},
+           {VkDescriptorImageInfo{.imageView = src[j]->getImageView(),
+                                  .imageLayout = src[j]->getImage()->getImageLayout()}}},
           {1,
            {VkDescriptorImageInfo{.imageView = blur[i]->getImageView()->getImageView(),
                                   .imageLayout = blur[i]->getImageView()->getImage()->getImageLayout()}}},
@@ -27,7 +27,7 @@ void Postprocessing::_initialize(std::vector<std::shared_ptr<Texture>> src,
   }
 }
 
-Postprocessing::Postprocessing(std::vector<std::shared_ptr<Texture>> src,
+Postprocessing::Postprocessing(std::vector<std::shared_ptr<ImageView>> src,
                                std::vector<std::shared_ptr<Texture>> blur,
                                std::vector<std::shared_ptr<ImageView>> dst,
                                std::shared_ptr<EngineState> engineState) {
@@ -64,7 +64,7 @@ Postprocessing::Postprocessing(std::vector<std::shared_ptr<Texture>> src,
            VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = sizeof(ComputePush)}}});
 }
 
-void Postprocessing::reset(std::vector<std::shared_ptr<Texture>> src,
+void Postprocessing::reset(std::vector<std::shared_ptr<ImageView>> src,
                            std::vector<std::shared_ptr<Texture>> blur,
                            std::vector<std::shared_ptr<ImageView>> dst) {
   _initialize(src, blur, dst);
@@ -78,7 +78,8 @@ float Postprocessing::getGamma() { return _gamma; }
 
 float Postprocessing::getExposure() { return _exposure; }
 
-void Postprocessing::drawCompute(int currentFrame, int swapchainIndex, std::shared_ptr<CommandBuffer> commandBuffer) {
+void Postprocessing::drawCompute(int swapchainIndex, std::shared_ptr<CommandBuffer> commandBuffer) {
+  int currentFrame = _engineState->getFrameInFlight();
   vkCmdBindPipeline(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, _computePipeline->getPipeline());
 
   if (_computePipeline->getPushConstants().find("compute") != _computePipeline->getPushConstants().end()) {

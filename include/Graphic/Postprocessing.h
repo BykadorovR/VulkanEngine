@@ -12,12 +12,12 @@ class Postprocessing {
   float _gamma = 2.2f;
   float _exposure = 1.f;
 
-  void _initialize(std::vector<std::shared_ptr<Texture>> src,
+  void _initialize(std::vector<std::shared_ptr<ImageView>> src,
                    std::vector<std::shared_ptr<Texture>> blur,
                    std::vector<std::shared_ptr<ImageView>> dst);
 
  public:
-  Postprocessing(std::vector<std::shared_ptr<Texture>> src,
+  Postprocessing(std::vector<std::shared_ptr<ImageView>> src,
                  std::vector<std::shared_ptr<Texture>> blur,
                  std::vector<std::shared_ptr<ImageView>> dst,
                  std::shared_ptr<EngineState> engineState);
@@ -26,9 +26,9 @@ class Postprocessing {
   float getGamma();
   float getExposure();
 
-  void reset(std::vector<std::shared_ptr<Texture>> src,
+  void reset(std::vector<std::shared_ptr<ImageView>> src,
              std::vector<std::shared_ptr<Texture>> blur,
              std::vector<std::shared_ptr<ImageView>> dst);
 
-  void drawCompute(int currentFrame, int swapchainIndex, std::shared_ptr<CommandBuffer> commandBuffer);
+  void drawCompute(int swapchainIndex, std::shared_ptr<CommandBuffer> commandBuffer);
 };

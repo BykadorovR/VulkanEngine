@@ -19,6 +19,7 @@ class InputHandler : public InputSubscriber {
 class Main {
  private:
   std::shared_ptr<Core> _core;
+  std::shared_ptr<GUI> _gui;
   std::shared_ptr<CameraFly> _camera;
   std::shared_ptr<InputHandler> _inputHandler;
   std::shared_ptr<MaterialColor> _materialColor;
@@ -61,7 +62,7 @@ class Main {
 
  public:
   Main();
-  void update();
+  void update(std::shared_ptr<CommandBuffer> commandBuffer);
   void reset(int width, int height);
   void start();
 };
