@@ -8,6 +8,34 @@
 #include "BS_thread_pool.hpp"
 #include "Vulkan/Sync.h"
 
+class ImageHolder {
+ protected:
+  std::vector<std::shared_ptr<Image>> _images;
+
+ public:
+  ImageHolder(std::vector<std::shared_ptr<Image>> images);
+  virtual std::shared_ptr<Image> getImage() = 0;
+  std::vector<std::shared_ptr<Image>> getImages();
+};
+
+class ImageHolderSwapchain : public ImageHolder {
+ private:
+  std::shared_ptr<Swapchain> _swapchain;
+
+ public:
+  ImageHolderSwapchain(std::vector<std::shared_ptr<Image>> images, std::shared_ptr<Swapchain> swapchain);
+  std::shared_ptr<Image> getImage() override;
+};
+
+class ImageHolderFlight : public ImageHolder {
+ private:
+  std::shared_ptr<EngineState> _engineState;
+
+ public:
+  ImageHolderFlight(std::vector<std::shared_ptr<Image>> images, std::shared_ptr<EngineState> engineState);
+  std::shared_ptr<Image> getImage() override;
+};
+
 enum class GraphPassStage { GRAPHIC = 0, COMPUTE = 1, TRANSFER = 2 };
 
 class GraphPass {
@@ -16,12 +44,12 @@ class GraphPass {
   GraphPassStage _stage;
   std::shared_ptr<EngineState> _engineState;
   // TODO: can contain either frameInFlight or number in swapchain targets, need to handle appropriately
-  std::map<std::string, std::vector<std::shared_ptr<Image>>> _colorTargets;
+  std::map<std::string, std::shared_ptr<ImageHolder>> _colorTargets;
   std::map<std::string, std::shared_ptr<Image>> _depthTarget;
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> _storageInputs;
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> _storageOutputs;
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> _vertexBufferInputs;
-  std::map<std::string, std::vector<std::shared_ptr<Image>>> _textureInputs;
+  std::map<std::string, std::shared_ptr<ImageHolder>> _textureInputs;
   std::shared_ptr<CommandPool> _commandPool;
   std::vector<std::shared_ptr<CommandBuffer>> _commandBuffers;
   std::vector<std::vector<std::shared_ptr<Semaphore>>> _signalSemaphores, _waitSemaphores;
@@ -31,10 +59,10 @@ class GraphPass {
  public:
   GraphPass(std::string name, GraphPassStage stage, std::shared_ptr<EngineState> engineState);
   // handle attachments
-  void addColorTarget(std::string name, std::vector<std::shared_ptr<Image>> images);
+  void addColorTarget(std::string name, std::shared_ptr<ImageHolder> images);
   void setDepthTarget(std::string name, std::shared_ptr<Image> image);
   // handle input to shaders
-  void addTextureInput(std::string name, std::vector<std::shared_ptr<Image>> images);
+  void addTextureInput(std::string name, std::shared_ptr<ImageHolder> images);
   void addUniformInput();
   void addStorageInput(std::string name, std::vector<std::shared_ptr<Buffer>> buffers);
   // handle output from shaders
@@ -54,12 +82,12 @@ class GraphPass {
   std::vector<std::shared_ptr<CommandBuffer>> getCommandBuffers();
 
   GraphPassStage getStage();
-  std::map<std::string, std::vector<std::shared_ptr<Image>>> getColorTargets();
+  std::map<std::string, std::shared_ptr<ImageHolder>> getColorTargets();
   std::map<std::string, std::shared_ptr<Image>> getDepthTarget();
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> getStorageInputs();
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> getStorageOutputs();
   std::map<std::string, std::vector<std::shared_ptr<Buffer>>> getVertexBufferInputs();
-  std::map<std::string, std::vector<std::shared_ptr<Image>>> getTextureInputs();
+  std::map<std::string, std::shared_ptr<ImageHolder>> getTextureInputs();
   bool getEnd();
   std::string getName();
   // set function that does render pass work
@@ -91,4 +119,5 @@ class RenderGraph {
   void calculate();
   void print();
   void render();
+  void reset();
 };

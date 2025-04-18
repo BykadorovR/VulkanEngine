@@ -19,13 +19,11 @@ GraphPass::GraphPass(std::string name, GraphPassStage stage, std::shared_ptr<Eng
   }
 }
 
-void GraphPass::addColorTarget(std::string name, std::vector<std::shared_ptr<Image>> images) {
-  _colorTargets[name] = images;
-}
+void GraphPass::addColorTarget(std::string name, std::shared_ptr<ImageHolder> images) { _colorTargets[name] = images; }
 
 GraphPassStage GraphPass::getStage() { return _stage; }
 
-std::map<std::string, std::vector<std::shared_ptr<Image>>> GraphPass::getColorTargets() { return _colorTargets; }
+std::map<std::string, std::shared_ptr<ImageHolder>> GraphPass::getColorTargets() { return _colorTargets; }
 
 std::map<std::string, std::shared_ptr<Image>> GraphPass::getDepthTarget() { return _depthTarget; }
 
@@ -37,7 +35,7 @@ std::map<std::string, std::vector<std::shared_ptr<Buffer>>> GraphPass::getVertex
   return _vertexBufferInputs;
 }
 
-std::map<std::string, std::vector<std::shared_ptr<Image>>> GraphPass::getTextureInputs() { return _textureInputs; }
+std::map<std::string, std::shared_ptr<ImageHolder>> GraphPass::getTextureInputs() { return _textureInputs; }
 
 void GraphPass::addRenderExecution(std::function<void(std::shared_ptr<CommandBuffer> commandBuffer)> renderExecution) {
   _renderExecution.push_back(renderExecution);
@@ -63,7 +61,7 @@ void GraphPass::addVertexBufferInput(std::string name, std::vector<std::shared_p
   _vertexBufferInputs[name] = buffers;
 }
 
-void GraphPass::addTextureInput(std::string name, std::vector<std::shared_ptr<Image>> images) {
+void GraphPass::addTextureInput(std::string name, std::shared_ptr<ImageHolder> images) {
   _textureInputs[name] = images;
 }
 
@@ -159,10 +157,10 @@ void RenderGraph::print() {
       }
       std::cout << std::endl;
     }
-    for (auto [name, resources] : value->getColorTargets()) {
+    for (auto [name, resource] : value->getColorTargets()) {
       std::cout << " color target: " << name << "; ";
-      for (auto resource : resources) {
-        std::cout << resource->getImage() << " ";
+      for (auto image : resource->getImages()) {
+        std::cout << resource->getImage()->getImage() << " ";
       }
       std::cout << std::endl;
     }
@@ -183,10 +181,10 @@ void RenderGraph::print() {
       }
       std::cout << std::endl;
     }
-    for (auto [name, resources] : value->getTextureInputs()) {
+    for (auto [name, resource] : value->getTextureInputs()) {
       std::cout << " texture input: " << name << "; ";
-      for (auto resource : resources) {
-        std::cout << resource->getImage() << " ";
+      for (auto image : resource->getImages()) {
+        std::cout << resource->getImage()->getImage() << " ";
       }
       std::cout << std::endl;
     }
@@ -287,15 +285,11 @@ void RenderGraph::calculate() {
     // who first interact with swapchain that should wait for the semaphore
     if (flagWaitForSwapchain) {
       for (auto [name, target] : node->getColorTargets()) {
-        auto swapchainImageViews = _swapchain->getImageViews();
-        for (auto swapchainImageView : swapchainImageViews) {
-          if (std::find(target.begin(), target.end(), swapchainImageView->getImage()) != target.end()) {
-            node->addWaitSemaphore(_semaphoreImageAvailable);
-            flagWaitForSwapchain = false;
-            break;
-          }
+        if (std::dynamic_pointer_cast<ImageHolderSwapchain>(target)) {
+          node->addWaitSemaphore(_semaphoreImageAvailable);
+          flagWaitForSwapchain = false;
+          break;
         }
-        if (flagWaitForSwapchain == false) break;
       }
     }
     // end node should signal end semaphore
@@ -385,19 +379,6 @@ void RenderGraph::render() {
         waitSemaphores.clear();
         waitStages.clear();
       } else {
-        auto isSwapchain = [swapchain = _swapchain](std::vector<std::shared_ptr<Image>> images) -> bool {
-          auto swapchainImageViews = swapchain->getImageViews();
-          bool found = false;
-          for (auto swapchain : swapchainImageViews) {
-            if (std::find_if(images.begin(), images.end(), [swapchain = swapchain](std::shared_ptr<Image> image) {
-                  return image->getImage() == swapchain->getImage()->getImage();
-                }) != images.end()) {
-              found = true;
-              break;
-            }
-          }
-          return found;
-        };
         // put EXECUTION AND MEMORY barriers if needed (not layout transition ones)
         // IMPORTANT: we should add any barrier to the previous stage because potentially all command buffer are already
         // recorded. So we need to add barrier to the end of the previous command buffer.
@@ -406,11 +387,7 @@ void RenderGraph::render() {
             case GraphPassStage::GRAPHIC: {
               std::set<std::shared_ptr<Image>> images;
               for (auto& [key, value] : graphPass->getTextureInputs()) {
-                // TODO: texture vector should return correct index by itself, need to use child class for it
-                if (isSwapchain(value))
-                  images.insert(value[_swapchain->getSwapchainIndex()]);
-                else
-                  images.insert(value[frameInFlight]);
+                images.insert(value->getImage());
               }
 
               std::vector<VkImageMemoryBarrier> executionBarriers;
@@ -432,8 +409,7 @@ void RenderGraph::render() {
             case GraphPassStage::COMPUTE: {
               std::vector<VkImageMemoryBarrier> imageBarriers;
               for (auto& [key, value] : graphPass->getTextureInputs()) {
-                std::shared_ptr<Image> image = value[frameInFlight];
-                if (isSwapchain(value)) image = value[_swapchain->getSwapchainIndex()];
+                std::shared_ptr<Image> image = value->getImage();
                 imageBarriers.push_back(
                     VkImageMemoryBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
                                          .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
@@ -500,3 +476,41 @@ void RenderGraph::render() {
     vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo,
                   _fenceInFlight[frameInFlight]->getFence());
 }
+
+void RenderGraph::reset() {
+  std::vector<std::shared_ptr<Image>> images;
+  for (auto& imageView : _swapchain->getImageViews()) images.push_back(imageView->getImage());
+  auto swapchainHolder = std::make_shared<ImageHolderSwapchain>(images, _swapchain);
+  for (auto& pass : _passesOrdered) {
+    // get all texture inputs/color target and reinitialize
+    for (auto [key, value] : pass->getColorTargets()) {
+      if (std::dynamic_pointer_cast<ImageHolderSwapchain>(value)) {
+        pass->addColorTarget(key, swapchainHolder);
+      }
+    }
+    for (auto [key, value] : pass->getTextureInputs()) {
+      if (std::dynamic_pointer_cast<ImageHolderSwapchain>(value)) {
+        pass->addTextureInput(key, swapchainHolder);
+      }
+    }
+  }
+}
+
+ImageHolder::ImageHolder(std::vector<std::shared_ptr<Image>> images) { _images = images; }
+
+std::vector<std::shared_ptr<Image>> ImageHolder::getImages() { return _images; }
+
+ImageHolderSwapchain::ImageHolderSwapchain(std::vector<std::shared_ptr<Image>> images,
+                                           std::shared_ptr<Swapchain> swapchain)
+    : ImageHolder(images) {
+  _swapchain = swapchain;
+}
+std::shared_ptr<Image> ImageHolderSwapchain::getImage() { return _images[_swapchain->getSwapchainIndex()]; }
+
+ImageHolderFlight::ImageHolderFlight(std::vector<std::shared_ptr<Image>> images,
+                                     std::shared_ptr<EngineState> engineState)
+    : ImageHolder(images) {
+  _engineState = engineState;
+}
+
+std::shared_ptr<Image> ImageHolderFlight::getImage() { return _images[_engineState->getFrameInFlight()]; }

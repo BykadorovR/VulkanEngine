@@ -524,14 +524,7 @@ void Core::_reset() {
 
   _initializeFramebuffer();
 
-  auto renderPass = _renderGraph->getPass("Render", GraphPassStage::GRAPHIC);
-  std::vector<std::shared_ptr<Image>> imageSwapchain;
-  for (auto& imageViews : _swapchain->getImageViews()) imageSwapchain.push_back(imageViews->getImage());
-  renderPass->addColorTarget("Swapchain", imageSwapchain);
-  auto postprocessingPass = _renderGraph->getPass("Postprocessing", GraphPassStage::COMPUTE);
-  postprocessingPass->addTextureInput("Swapchain", imageSwapchain);
-  auto guiPass = _renderGraph->getPass("GUI", GraphPassStage::GRAPHIC);
-  guiPass->addColorTarget("Swapchain", imageSwapchain);
+  _renderGraph->reset();
 
   _callbackReset(_swapchain->getSwapchain().extent.width, _swapchain->getSwapchain().extent.height);
 }
@@ -652,7 +645,8 @@ void Core::draw() {
             for (auto& texture : directionalShadows[i]->getShadowMapTexture()) {
               imagesShadow.push_back(texture->getImageView()->getImage());
             }
-            directionalShadowPass->addColorTarget("Directional shadow " + std::to_string(i), imagesShadow);
+            directionalShadowPass->addColorTarget("Directional shadow " + std::to_string(i),
+                                                  std::make_shared<ImageHolderFlight>(imagesShadow, _engineState));
 
             // directional shadow blur
             if (_blurGraphicDirectional.find(directionalShadows[i]) != _blurGraphicDirectional.end()) {
@@ -664,8 +658,11 @@ void Core::draw() {
               for (auto& texture : _blurGraphicDirectional[directionalShadows[i]]->getShadowMapBlurTextureOut()) {
                 imagesBlur.push_back(texture->getImageView()->getImage());
               }
-              directionalShadowBlurPass->addColorTarget("Directional shadow blur " + std::to_string(i), imagesBlur);
-              directionalShadowBlurPass->addTextureInput("Directional shadow " + std::to_string(i), imagesShadow);
+              directionalShadowBlurPass->addColorTarget("Directional shadow blur " + std::to_string(i),
+                                                        std::make_shared<ImageHolderFlight>(imagesBlur, _engineState));
+              directionalShadowBlurPass->addTextureInput(
+                  "Directional shadow " + std::to_string(i),
+                  std::make_shared<ImageHolderFlight>(imagesShadow, _engineState));
             }
           }
         }
@@ -684,7 +681,8 @@ void Core::draw() {
             for (auto& cubemap : pointShadows[i]->getShadowMapCubemap()) {
               imagesShadow.push_back(cubemap->getTexture()->getImageView()->getImage());
             }
-            pointShadowPass->addColorTarget("Point shadow " + std::to_string(i), imagesShadow);
+            pointShadowPass->addColorTarget("Point shadow " + std::to_string(i),
+                                            std::make_shared<ImageHolderFlight>(imagesShadow, _engineState));
 
             // point shadow blur
             if (_blurGraphicPoint.find(pointShadows[i]) != _blurGraphicPoint.end()) {
@@ -698,8 +696,10 @@ void Core::draw() {
               for (auto& cubemap : _blurGraphicPoint[pointShadows[i]]->getShadowMapBlurCubemapOut()) {
                 imagesBlur.push_back(cubemap->getTexture()->getImageView()->getImage());
               }
-              pointShadowBlurPass->addColorTarget("Point shadow blur " + std::to_string(i), imagesBlur);
-              pointShadowBlurPass->addTextureInput("Point shadow " + std::to_string(i), imagesShadow);
+              pointShadowBlurPass->addColorTarget("Point shadow blur " + std::to_string(i),
+                                                  std::make_shared<ImageHolderFlight>(imagesBlur, _engineState));
+              pointShadowBlurPass->addTextureInput("Point shadow " + std::to_string(i),
+                                                   std::make_shared<ImageHolderFlight>(imagesShadow, _engineState));
             }
           }
         }
@@ -748,8 +748,8 @@ void Core::draw() {
           for (auto& imageViews : _swapchain->getImageViews()) imagePrimitives.push_back(imageViews->getImage());
           std::vector<std::shared_ptr<Image>> imageBlur;
           for (auto& texture : _textureBlurIn) imageBlur.push_back(texture->getImageView()->getImage());
-          renderPass->addColorTarget("Swapchain", imagePrimitives);
-          renderPass->addColorTarget("Bloom blur input", imageBlur);
+          renderPass->addColorTarget("Swapchain", std::make_shared<ImageHolderSwapchain>(imagePrimitives, _swapchain));
+          renderPass->addColorTarget("Bloom blur input", std::make_shared<ImageHolderFlight>(imageBlur, _engineState));
           renderPass->setDepthTarget("Depth", _depthAttachmentImageView->getImage());
         }
         {
@@ -759,8 +759,10 @@ void Core::draw() {
             blurPass->addRenderExecution(std::bind(&Core::_computeBloom, this, std::placeholders::_1));
             std::vector<std::shared_ptr<Image>> imagesBlurInput;
             for (auto& texture : _textureBlurIn) imagesBlurInput.push_back(texture->getImageView()->getImage());
-            blurPass->addTextureInput("Bloom blur input", imagesBlurInput);
-            blurPass->addColorTarget("Bloom blur output", imagesBlurInput);
+            blurPass->addTextureInput("Bloom blur input",
+                                      std::make_shared<ImageHolderFlight>(imagesBlurInput, _engineState));
+            blurPass->addColorTarget("Bloom blur output",
+                                     std::make_shared<ImageHolderFlight>(imagesBlurInput, _engineState));
           }
         }
         {
@@ -771,7 +773,8 @@ void Core::draw() {
                 std::bind(&Core::_computePostprocessing, this, std::placeholders::_1));
             std::vector<std::shared_ptr<Image>> imagesInput;
             for (auto& imageViews : _swapchain->getImageViews()) imagesInput.push_back(imageViews->getImage());
-            postprocessingPass->addTextureInput("Swapchain", imagesInput);
+            postprocessingPass->addTextureInput("Swapchain",
+                                                std::make_shared<ImageHolderSwapchain>(imagesInput, _swapchain));
             if (_blurCompute) {
               postprocessingPass->addTextureInput(
                   "Bloom blur output",
@@ -779,7 +782,8 @@ void Core::draw() {
             }
             std::vector<std::shared_ptr<Image>> imagesOutput;
             for (auto& imageViews : _swapchain->getImageViews()) imagesOutput.push_back(imageViews->getImage());
-            postprocessingPass->addColorTarget("Swapchain", imagesOutput);
+            postprocessingPass->addColorTarget("Swapchain",
+                                               std::make_shared<ImageHolderSwapchain>(imagesOutput, _swapchain));
           }
         }
         {
@@ -790,7 +794,7 @@ void Core::draw() {
             guiPass->addRenderExecution(std::bind(&Core::_debugVisualizations, this, std::placeholders::_1));
             std::vector<std::shared_ptr<Image>> images;
             for (auto& imageView : _swapchain->getImageViews()) images.push_back(imageView->getImage());
-            guiPass->addColorTarget("Swapchain", images);
+            guiPass->addColorTarget("Swapchain", std::make_shared<ImageHolderSwapchain>(images, _swapchain));
           }
         }
         _renderGraph->calculate();
