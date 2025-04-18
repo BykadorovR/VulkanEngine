@@ -514,6 +514,7 @@ void Core::_reset() {
   _commandBufferApplication[frameInFlight]->beginCommands();
 
   _initializeTextures();
+  for (auto& imageView : _swapchain->getImageViews()) imageView->getImage()->overrideLayout(VK_IMAGE_LAYOUT_GENERAL);
   _postprocessing->reset(_swapchain->getImageViews(), _textureBlurIn, _swapchain->getImageViews());
   for (auto& imageView : _swapchain->getImageViews())
     imageView->getImage()->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
@@ -522,6 +523,15 @@ void Core::_reset() {
   if (_blurCompute) _blurCompute->reset(_textureBlurIn, _textureBlurOut);
 
   _initializeFramebuffer();
+
+  auto renderPass = _renderGraph->getPass("Render", GraphPassStage::GRAPHIC);
+  std::vector<std::shared_ptr<Image>> imageSwapchain;
+  for (auto& imageViews : _swapchain->getImageViews()) imageSwapchain.push_back(imageViews->getImage());
+  renderPass->addColorTarget("Swapchain", imageSwapchain);
+  auto postprocessingPass = _renderGraph->getPass("Postprocessing", GraphPassStage::COMPUTE);
+  postprocessingPass->addTextureInput("Swapchain", imageSwapchain);
+  auto guiPass = _renderGraph->getPass("GUI", GraphPassStage::GRAPHIC);
+  guiPass->addColorTarget("Swapchain", imageSwapchain);
 
   _callbackReset(_swapchain->getSwapchain().extent.width, _swapchain->getSwapchain().extent.height);
 }

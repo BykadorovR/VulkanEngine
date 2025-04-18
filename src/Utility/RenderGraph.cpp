@@ -352,37 +352,114 @@ void RenderGraph::render() {
     std::future<void> renderFuture = std::move(renderFutures[i].second);
     if (renderFuture.valid()) renderFuture.get();
     // stage change or last iteration
-    if (previousStage.has_value() && previousStage != graphPass->getStage()) {
-      // need to end command buffers before submit
-      std::vector<VkCommandBuffer> commandBufferRawSubmit;
-      for (auto& commandBuffer : commandBufferSubmit) {
-        commandBuffer->endCommands();
-        commandBufferRawSubmit.push_back(commandBuffer->getCommandBuffer());
-      }
+    if (previousStage.has_value()) {
+      if (previousStage != graphPass->getStage()) {
+        // need to end command buffers before submit
+        std::vector<VkCommandBuffer> commandBufferRawSubmit;
+        for (auto& commandBuffer : commandBufferSubmit) {
+          commandBuffer->endCommands();
+          commandBufferRawSubmit.push_back(commandBuffer->getCommandBuffer());
+        }
 
-      std::vector<VkPipelineStageFlags> waitStages(waitSemaphores.size());
-      if (previousStage == GraphPassStage::COMPUTE)
-        for (auto& waitStage : waitStages) waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-      else
-        for (auto& waitStage : waitStages) waitStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-      // submit + semaphores
-      VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                              .waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
-                              .pWaitSemaphores = waitSemaphores.data(),
-                              .pWaitDstStageMask = waitStages.data(),
-                              .commandBufferCount = (uint32_t)commandBufferRawSubmit.size(),
-                              .pCommandBuffers = commandBufferRawSubmit.data(),
-                              .signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
-                              .pSignalSemaphores = signalSemaphores.data()};
-      if (previousStage == GraphPassStage::COMPUTE)
-        vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::compute), 1, &submitInfo, VK_NULL_HANDLE);
-      else
-        vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo, VK_NULL_HANDLE);
-      //
-      commandBufferSubmit.clear();
-      signalSemaphores.clear();
-      waitSemaphores.clear();
-      waitStages.clear();
+        std::vector<VkPipelineStageFlags> waitStages(waitSemaphores.size());
+        if (previousStage == GraphPassStage::COMPUTE)
+          for (auto& waitStage : waitStages) waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        else
+          for (auto& waitStage : waitStages) waitStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        // submit + semaphores
+        VkSubmitInfo submitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                .waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
+                                .pWaitSemaphores = waitSemaphores.data(),
+                                .pWaitDstStageMask = waitStages.data(),
+                                .commandBufferCount = (uint32_t)commandBufferRawSubmit.size(),
+                                .pCommandBuffers = commandBufferRawSubmit.data(),
+                                .signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
+                                .pSignalSemaphores = signalSemaphores.data()};
+        if (previousStage == GraphPassStage::COMPUTE)
+          vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::compute), 1, &submitInfo, VK_NULL_HANDLE);
+        else
+          vkQueueSubmit(_engineState->getDevice()->getQueue(vkb::QueueType::graphics), 1, &submitInfo, VK_NULL_HANDLE);
+        //
+        commandBufferSubmit.clear();
+        signalSemaphores.clear();
+        waitSemaphores.clear();
+        waitStages.clear();
+      } else {
+        auto isSwapchain = [swapchain = _swapchain](std::vector<std::shared_ptr<Image>> images) -> bool {
+          auto swapchainImageViews = swapchain->getImageViews();
+          bool found = false;
+          for (auto swapchain : swapchainImageViews) {
+            if (std::find_if(images.begin(), images.end(), [swapchain = swapchain](std::shared_ptr<Image> image) {
+                  return image->getImage() == swapchain->getImage()->getImage();
+                }) != images.end()) {
+              found = true;
+              break;
+            }
+          }
+          return found;
+        };
+        // put EXECUTION AND MEMORY barriers if needed (not layout transition ones)
+        // IMPORTANT: we should add any barrier to the previous stage because potentially all command buffer are already
+        // recorded. So we need to add barrier to the end of the previous command buffer.
+        {
+          switch (graphPass->getStage()) {
+            case GraphPassStage::GRAPHIC: {
+              std::set<std::shared_ptr<Image>> images;
+              for (auto& [key, value] : graphPass->getTextureInputs()) {
+                // TODO: texture vector should return correct index by itself, need to use child class for it
+                if (isSwapchain(value))
+                  images.insert(value[_swapchain->getSwapchainIndex()]);
+                else
+                  images.insert(value[frameInFlight]);
+              }
+
+              std::vector<VkImageMemoryBarrier> executionBarriers;
+              for (auto& image : images) {
+                executionBarriers.push_back(
+                    VkImageMemoryBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                         .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                         .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                                         .oldLayout = image->getImageLayout(),
+                                         .newLayout = image->getImageLayout(),
+                                         .image = image->getImage(),
+                                         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}});
+              }
+              vkCmdPipelineBarrier(renderFutures[i - 1].first->getCommandBuffers()[frameInFlight]->getCommandBuffer(),
+                                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                   0, 0, nullptr, 0, nullptr, executionBarriers.size(), executionBarriers.data());
+              break;
+            }
+            case GraphPassStage::COMPUTE: {
+              std::vector<VkImageMemoryBarrier> imageBarriers;
+              for (auto& [key, value] : graphPass->getTextureInputs()) {
+                std::shared_ptr<Image> image = value[frameInFlight];
+                if (isSwapchain(value)) image = value[_swapchain->getSwapchainIndex()];
+                imageBarriers.push_back(
+                    VkImageMemoryBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                         .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                                         .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                                         .oldLayout = image->getImageLayout(),
+                                         .newLayout = image->getImageLayout(),
+                                         .image = image->getImage(),
+                                         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}});
+              }
+              std::vector<VkBufferMemoryBarrier> bufferBarriers;
+              for (auto& [key, value] : graphPass->getStorageInputs()) {
+                bufferBarriers.push_back(VkBufferMemoryBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                                               .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+                                                               .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+                                                               .buffer = value[frameInFlight]->getData(),
+                                                               .size = VK_WHOLE_SIZE});
+              }
+              vkCmdPipelineBarrier(renderFutures[i - 1].first->getCommandBuffers()[frameInFlight]->getCommandBuffer(),
+                                   VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0,
+                                   nullptr, bufferBarriers.size(), bufferBarriers.data(), imageBarriers.size(),
+                                   imageBarriers.data());
+              break;
+            }
+          };
+        }
+      }
     }
 
     commandBufferSubmit.push_back(graphPass->getCommandBuffers()[frameInFlight]);
