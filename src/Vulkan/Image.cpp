@@ -333,6 +333,7 @@ Framebuffer::Framebuffer(std::vector<std::shared_ptr<ImageView>> attachments,
                          std::shared_ptr<Device> device) {
   _device = device;
   _resolution = renderArea;
+  _renderPass = renderPass;
   _attachments = attachments;
 
   std::vector<VkImageView> input;
@@ -358,5 +359,7 @@ std::vector<std::shared_ptr<ImageView>> Framebuffer::getAttachments() { return _
 std::tuple<int, int> Framebuffer::getResolution() { return _resolution; }
 
 VkFramebuffer Framebuffer::getBuffer() { return _buffer; }
+
+std::shared_ptr<RenderPass> Framebuffer::getRenderPass() { return _renderPass; }
 
 Framebuffer::~Framebuffer() { vkDestroyFramebuffer(_device->getLogicalDevice(), _buffer, nullptr); }

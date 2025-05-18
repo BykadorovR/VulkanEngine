@@ -78,6 +78,7 @@ class ImageView {
 class Framebuffer {
  private:
   std::shared_ptr<Device> _device;
+  std::shared_ptr<RenderPass> _renderPass;
   VkFramebuffer _buffer;
   std::tuple<int, int> _resolution;
   std::vector<std::shared_ptr<ImageView>> _attachments;
@@ -91,5 +92,6 @@ class Framebuffer {
   std::vector<std::shared_ptr<ImageView>> getAttachments();
   std::tuple<int, int> getResolution();
   VkFramebuffer getBuffer();
+  std::shared_ptr<RenderPass> getRenderPass();
   ~Framebuffer();
 };
