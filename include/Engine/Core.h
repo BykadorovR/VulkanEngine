@@ -64,6 +64,9 @@ class Core {
   std::shared_ptr<Postprocessing> _postprocessing;
   std::shared_ptr<Skybox> _skybox = nullptr;
   std::shared_ptr<BlurCompute> _blurCompute;
+  std::map<std::shared_ptr<DirectionalShadow>,
+           std::vector<std::pair<std::shared_ptr<BlurGraphicSeparate>, std::shared_ptr<BlurGraphicSeparate>>>>
+      _blurSeparateGraphicDirectional;
   std::map<std::shared_ptr<DirectionalShadow>, std::shared_ptr<DirectionalShadowBlur>> _blurGraphicDirectional;
   std::map<std::shared_ptr<PointShadow>, std::shared_ptr<PointShadowBlur>> _blurGraphicPoint;
   std::shared_ptr<BS::thread_pool> _pool;
@@ -84,6 +87,9 @@ class Core {
   void _drawShadowMapDirectionalBlur(std::shared_ptr<DirectionalShadow> directionalShadow,
                                      std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                                      std::shared_ptr<CommandBuffer> commandBuffer);
+  void _drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurGraphicSeparate> blur,
+                                              std::vector<std::shared_ptr<Framebuffer>> framebuffers,
+                                              std::shared_ptr<CommandBuffer> commandBuffer);
   void _drawShadowMapPointBlur(std::shared_ptr<PointShadow> pointShadow,
                                int face,
                                std::vector<std::shared_ptr<Framebuffer>> framebuffers,

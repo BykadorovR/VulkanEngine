@@ -66,3 +66,35 @@ class BlurGraphic : public Blur {
   void draw(bool horizontal, std::shared_ptr<CommandBuffer> commandBuffer) override;
   ~BlurGraphic() override = default;
 };
+
+class BlurGraphicSeparate {
+ private:
+  std::shared_ptr<PipelineGraphic> _pipeline;
+  std::shared_ptr<EngineState> _engineState;
+  std::vector<std::shared_ptr<DescriptorSet>> _descriptorSet;
+  std::shared_ptr<DescriptorSetLayout> _layoutBlur;
+  std::shared_ptr<RenderPass> _renderPass;
+  std::shared_ptr<MeshStatic2D> _mesh;
+  std::tuple<int, int> _resolution;
+  std::vector<std::shared_ptr<Buffer>> _blurWeightsSSBO;
+  std::vector<float> _blurWeights;
+  std::vector<bool> _changed;
+  int _kernelSize = 3;
+  float _sigma = _kernelSize / 3;
+  std::vector<std::shared_ptr<Texture>> _textureSrc, _textureDst;
+
+  void _setWeights(int currentFrame);
+  void _updateWeights();
+  void _updateDescriptors(int currentFrame);
+  void _initialize(std::vector<std::shared_ptr<Texture>> src);
+
+ public:
+  BlurGraphicSeparate(bool horizontal,
+                      std::vector<std::shared_ptr<Texture>> src,
+                      std::shared_ptr<CommandBuffer> commandBufferTransfer,
+                      std::shared_ptr<EngineState> engineState);
+  void draw(std::shared_ptr<CommandBuffer> commandBuffer);
+  std::vector<std::shared_ptr<Texture>> getTextureSrc();
+  std::vector<std::shared_ptr<Texture>> getTextureDst();
+  ~BlurGraphicSeparate() = default;
+};

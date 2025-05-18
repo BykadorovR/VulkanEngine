@@ -622,7 +622,7 @@ void RenderGraph::render() {
                                          .image = image->getImage(),
                                          .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}});
               }
-              vkCmdPipelineBarrier(renderFutures[i - 1].first->getCommandBuffers()[frameInFlight]->getCommandBuffer(),
+              vkCmdPipelineBarrier(commandBufferSubmit.back()->getCommandBuffer(),
                                    VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                    0, 0, nullptr, 0, nullptr, executionBarriers.size(), executionBarriers.data());
               break;

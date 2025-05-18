@@ -345,3 +345,191 @@ void BlurGraphic::draw(bool horizontal, std::shared_ptr<CommandBuffer> commandBu
 
   vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh->getIndexData().size()), 1, 0, 0, 0);
 }
+
+BlurGraphicSeparate::BlurGraphicSeparate(bool horizontal,
+                                         std::vector<std::shared_ptr<Texture>> src,
+                                         std::shared_ptr<CommandBuffer> commandBufferTransfer,
+                                         std::shared_ptr<EngineState> engineState) {
+  _engineState = engineState;
+  _textureSrc = src;
+
+  _resolution = src[0]->getImageView()->getImage()->getResolution();
+
+  _textureDst.resize(engineState->getSettings()->getMaxFramesInFlight());
+  for (int i = 0; i < engineState->getSettings()->getMaxFramesInFlight(); i++) {
+    auto blurImage = std::make_shared<Image>(_resolution, 1, 1, engineState->getSettings()->getShadowMapFormat(),
+                                             VK_IMAGE_TILING_OPTIMAL,
+                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, engineState);
+    blurImage->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1,
+                            commandBufferTransfer);
+    auto blurImageView = std::make_shared<ImageView>(blurImage, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1,
+                                                     VK_IMAGE_ASPECT_COLOR_BIT, engineState);
+    auto filter = VK_FILTER_NEAREST;
+    if (engineState->getDevice()->isFormatFeatureSupported(engineState->getSettings()->getShadowMapFormat(),
+                                                           VK_IMAGE_TILING_OPTIMAL,
+                                                           VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
+      filter = VK_FILTER_LINEAR;
+    }
+    _textureDst[i] = std::make_shared<Texture>(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, filter, blurImageView,
+                                               engineState);
+  }
+
+  std::shared_ptr<Shader> shader;
+  if (horizontal) {
+    shader = std::make_shared<Shader>(_engineState);
+    shader->add("shaders/postprocessing/blur_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
+    shader->add("shaders/postprocessing/blurHorizontal_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+  } else {
+    shader = std::make_shared<Shader>(_engineState);
+    shader->add("shaders/postprocessing/blur_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
+    shader->add("shaders/postprocessing/blurVertical_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+  }
+  _blurWeightsSSBO.resize(_engineState->getSettings()->getMaxFramesInFlight());
+  _changed.resize(_engineState->getSettings()->getMaxFramesInFlight());
+  _mesh = std::make_shared<MeshStatic2D>(engineState);
+  // 3   0
+  // 2   1
+  _mesh->setVertices({Vertex2D{{1.f, 1.f, 0.f}, {0.f, 0.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 0.f}, {1.f, 0.f, 0.f, 1.f}},
+                      Vertex2D{{1.f, -1.f, 0.f}, {0.f, 0.f, 1.f}, {1.f, 1.f, 1.f}, {1.f, 1.f}, {1.f, 0.f, 0.f, 1.f}},
+                      Vertex2D{{-1.f, -1.f, 0.f}, {0.f, 0.f, 1.f}, {1.f, 1.f, 1.f}, {0.f, 1.f}, {1.f, 0.f, 0.f, 1.f}},
+                      Vertex2D{{-1.f, 1.f, 0.f}, {0.f, 0.f, 1.f}, {1.f, 1.f, 1.f}, {0.f, 0.f}, {1.f, 0.f, 0.f, 1.f}}},
+                     commandBufferTransfer);
+  _mesh->setIndexes({0, 3, 2, 2, 1, 0}, commandBufferTransfer);
+
+  _renderPass = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::BLUR);
+
+  _updateWeights();
+  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
+    _updateDescriptors(i);
+    _changed[i] = false;
+  }
+
+  _layoutBlur = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
+  std::vector<VkDescriptorSetLayoutBinding> layoutBinding{{.binding = 0,
+                                                           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                           .descriptorCount = 1,
+                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                                                           .pImmutableSamplers = nullptr},
+                                                          {.binding = 1,
+                                                           .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                           .descriptorCount = 1,
+                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+                                                           .pImmutableSamplers = nullptr}};
+  _layoutBlur->createCustom(layoutBinding);
+
+  _initialize(src);
+
+  if (horizontal) {
+    _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+    _pipeline->setDepthTest(true);
+    _pipeline->setDepthWrite(true);
+    _pipeline->createCustom(
+        {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
+         shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
+        {std::pair{std::string("blur"), _layoutBlur}}, {}, _mesh->getBindingDescription(),
+        _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
+                                                 {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
+        _renderPass);
+  } else {
+    _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+    _pipeline->setDepthTest(true);
+    _pipeline->setDepthWrite(true);
+    _pipeline->createCustom(
+        {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
+         shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
+        {std::pair{std::string("blur"), _layoutBlur}}, {}, _mesh->getBindingDescription(),
+        _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
+                                                 {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
+        _renderPass);
+  }
+}
+
+void BlurGraphicSeparate::_updateDescriptors(int currentFrame) {
+  _blurWeightsSSBO[currentFrame] = std::make_shared<Buffer>(
+      _blurWeights.size() * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState);
+  _blurWeightsSSBO[currentFrame]->setData(_blurWeights.data());
+}
+
+void BlurGraphicSeparate::_updateWeights() {
+  _blurWeights.clear();
+  float expectedValue = 0;
+  float sum = 0;
+  for (int i = -_kernelSize / 2; i <= _kernelSize / 2; i++) {
+    float value = std::exp(-pow(i, 2) / (2 * pow(_sigma, 2)));
+    _blurWeights.push_back(value);
+    sum += value;
+  }
+
+  for (auto& coeff : _blurWeights) coeff /= sum;
+}
+
+void BlurGraphicSeparate::_setWeights(int currentFrame) {
+  std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfo = {
+      {0,
+       {VkDescriptorBufferInfo{.buffer = _blurWeightsSSBO[currentFrame]->getData(),
+                               .offset = 0,
+                               .range = _blurWeightsSSBO[currentFrame]->getSize()}}}};
+  _descriptorSet[currentFrame]->createCustom(bufferInfo, {});
+}
+
+void BlurGraphicSeparate::_initialize(std::vector<std::shared_ptr<Texture>> src) {
+  _descriptorSet.resize(_engineState->getSettings()->getMaxFramesInFlight());
+  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
+    _descriptorSet[i] = std::make_shared<DescriptorSet>(_layoutBlur, _engineState);
+
+    std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor = {
+        {1,
+         {VkDescriptorBufferInfo{.buffer = _blurWeightsSSBO[i]->getData(),
+                                 .offset = 0,
+                                 .range = _blurWeightsSSBO[i]->getSize()}}}};
+    std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
+        {0,
+         {VkDescriptorImageInfo{.sampler = src[i]->getSampler()->getSampler(),
+                                .imageView = src[i]->getImageView()->getImageView(),
+                                .imageLayout = src[i]->getImageView()->getImage()->getImageLayout()}}}};
+    _descriptorSet[i]->createCustom(bufferInfoColor, textureInfoColor);
+  }
+}
+
+std::vector<std::shared_ptr<Texture>> BlurGraphicSeparate::getTextureSrc() { return _textureSrc; }
+
+std::vector<std::shared_ptr<Texture>> BlurGraphicSeparate::getTextureDst() { return _textureDst; }
+
+void BlurGraphicSeparate::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
+  int currentFrame = _engineState->getFrameInFlight();
+  vkCmdBindPipeline(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->getPipeline());
+
+  if (_changed[currentFrame]) {
+    _updateDescriptors(currentFrame);
+    _setWeights(currentFrame);
+    _changed[currentFrame] = false;
+  }
+
+  auto resolution = _resolution;
+  VkViewport viewport{.x = 0.0f,
+                      .y = static_cast<float>(std::get<1>(resolution)),
+                      .width = static_cast<float>(std::get<0>(resolution)),
+                      .height = static_cast<float>(-std::get<1>(resolution)),
+                      .minDepth = 0.0f,
+                      .maxDepth = 1.0f};
+  vkCmdSetViewport(commandBuffer->getCommandBuffer(), 0, 1, &viewport);
+
+  VkRect2D scissor{.offset = {0, 0}, .extent = VkExtent2D(std::get<0>(resolution), std::get<1>(resolution))};
+  vkCmdSetScissor(commandBuffer->getCommandBuffer(), 0, 1, &scissor);
+
+  VkBuffer vertexBuffers[] = {_mesh->getVertexBuffer()->getBuffer()->getData()};
+  VkDeviceSize offsets[] = {0};
+  vkCmdBindVertexBuffers(commandBuffer->getCommandBuffer(), 0, 1, vertexBuffers, offsets);
+
+  vkCmdBindIndexBuffer(commandBuffer->getCommandBuffer(), _mesh->getIndexBuffer()->getBuffer()->getData(), 0,
+                       VK_INDEX_TYPE_UINT32);
+
+  auto pipelineLayout = _pipeline->getDescriptorSetLayout();
+  vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          _pipeline->getPipelineLayout(), 0, 1, &_descriptorSet[currentFrame]->getDescriptorSets(), 0,
+                          nullptr);
+
+  vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh->getIndexData().size()), 1, 0, 0, 0);
+}
