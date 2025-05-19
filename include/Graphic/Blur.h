@@ -79,6 +79,7 @@ class BlurGraphicSeparate {
   std::vector<std::shared_ptr<Buffer>> _blurWeightsSSBO;
   std::vector<float> _blurWeights;
   std::vector<bool> _changed;
+  bool _horizontal;
   int _kernelSize = 3;
   float _sigma = _kernelSize / 3;
   std::vector<std::shared_ptr<Texture>> _textureSrc, _textureDst;
@@ -91,10 +92,12 @@ class BlurGraphicSeparate {
  public:
   BlurGraphicSeparate(bool horizontal,
                       std::vector<std::shared_ptr<Texture>> src,
+                      std::vector<std::shared_ptr<Texture>> dst,
                       std::shared_ptr<CommandBuffer> commandBufferTransfer,
                       std::shared_ptr<EngineState> engineState);
   void draw(std::shared_ptr<CommandBuffer> commandBuffer);
   std::vector<std::shared_ptr<Texture>> getTextureSrc();
   std::vector<std::shared_ptr<Texture>> getTextureDst();
+  bool getHorizontal();
   ~BlurGraphicSeparate() = default;
 };

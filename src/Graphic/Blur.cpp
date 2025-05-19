@@ -348,32 +348,15 @@ void BlurGraphic::draw(bool horizontal, std::shared_ptr<CommandBuffer> commandBu
 
 BlurGraphicSeparate::BlurGraphicSeparate(bool horizontal,
                                          std::vector<std::shared_ptr<Texture>> src,
+                                         std::vector<std::shared_ptr<Texture>> dst,
                                          std::shared_ptr<CommandBuffer> commandBufferTransfer,
                                          std::shared_ptr<EngineState> engineState) {
   _engineState = engineState;
   _textureSrc = src;
+  _textureDst = dst;
+  _horizontal = horizontal;
 
   _resolution = src[0]->getImageView()->getImage()->getResolution();
-
-  _textureDst.resize(engineState->getSettings()->getMaxFramesInFlight());
-  for (int i = 0; i < engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    auto blurImage = std::make_shared<Image>(_resolution, 1, 1, engineState->getSettings()->getShadowMapFormat(),
-                                             VK_IMAGE_TILING_OPTIMAL,
-                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, engineState);
-    blurImage->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1,
-                            commandBufferTransfer);
-    auto blurImageView = std::make_shared<ImageView>(blurImage, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1,
-                                                     VK_IMAGE_ASPECT_COLOR_BIT, engineState);
-    auto filter = VK_FILTER_NEAREST;
-    if (engineState->getDevice()->isFormatFeatureSupported(engineState->getSettings()->getShadowMapFormat(),
-                                                           VK_IMAGE_TILING_OPTIMAL,
-                                                           VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
-      filter = VK_FILTER_LINEAR;
-    }
-    _textureDst[i] = std::make_shared<Texture>(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, filter, blurImageView,
-                                               engineState);
-  }
 
   std::shared_ptr<Shader> shader;
   if (horizontal) {
@@ -496,6 +479,8 @@ void BlurGraphicSeparate::_initialize(std::vector<std::shared_ptr<Texture>> src)
 std::vector<std::shared_ptr<Texture>> BlurGraphicSeparate::getTextureSrc() { return _textureSrc; }
 
 std::vector<std::shared_ptr<Texture>> BlurGraphicSeparate::getTextureDst() { return _textureDst; }
+
+bool BlurGraphicSeparate::getHorizontal() { return _horizontal; }
 
 void BlurGraphicSeparate::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
   int currentFrame = _engineState->getFrameInFlight();
