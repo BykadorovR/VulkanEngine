@@ -102,64 +102,6 @@ std::vector<std::vector<std::shared_ptr<Framebuffer>>> PointShadow::getShadowMap
   return _shadowMapFramebuffer;
 }
 
-DirectionalShadowBlur::DirectionalShadowBlur(std::vector<std::shared_ptr<Texture>> textureIn,
-                                             std::shared_ptr<CommandBuffer> commandBufferTransfer,
-                                             std::shared_ptr<RenderPass> renderPass,
-                                             std::shared_ptr<EngineState> engineState) {
-  _engineState = engineState;
-  auto resolution = engineState->getSettings()->getShadowMapResolution();
-  // create texture, frame buffers and blurs for directional lights shadow maps postprocessing
-  std::vector<std::shared_ptr<Framebuffer>> blurLightOut(engineState->getSettings()->getMaxFramesInFlight());
-  std::vector<std::shared_ptr<Framebuffer>> blurLightIn(engineState->getSettings()->getMaxFramesInFlight());
-  _textureOut.resize(engineState->getSettings()->getMaxFramesInFlight());
-  for (int i = 0; i < engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    auto blurImage = std::make_shared<Image>(resolution, 1, 1, engineState->getSettings()->getShadowMapFormat(),
-                                             VK_IMAGE_TILING_OPTIMAL,
-                                             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, engineState);
-    blurImage->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1,
-                            commandBufferTransfer);
-    auto blurImageView = std::make_shared<ImageView>(blurImage, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1,
-                                                     VK_IMAGE_ASPECT_COLOR_BIT, engineState);
-    auto filter = VK_FILTER_NEAREST;
-    if (engineState->getDevice()->isFormatFeatureSupported(engineState->getSettings()->getShadowMapFormat(),
-                                                           VK_IMAGE_TILING_OPTIMAL,
-                                                           VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
-      filter = VK_FILTER_LINEAR;
-    }
-    _textureOut[i] = std::make_shared<Texture>(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, filter, blurImageView,
-                                               engineState);
-    blurLightIn[i] = std::make_shared<Framebuffer>(std::vector{_textureOut[i]->getImageView()}, resolution, renderPass,
-                                                   engineState->getDevice());
-    blurLightOut[i] = std::make_shared<Framebuffer>(std::vector{textureIn[i]->getImageView()}, resolution, renderPass,
-                                                    engineState->getDevice());
-  }
-  _shadowMapFramebuffer = {blurLightIn, blurLightOut};
-
-  _blur = std::make_shared<BlurGraphic>(textureIn, _textureOut, commandBufferTransfer, engineState);
-  // create buffer pool and command buffer
-  _commandBufferDirectional.resize(engineState->getSettings()->getMaxFramesInFlight());
-  auto commandPool = std::make_shared<CommandPool>(vkb::QueueType::graphics, engineState->getDevice());
-  for (int i = 0; i < engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    _commandBufferDirectional[i] = std::make_shared<CommandBuffer>(commandPool, engineState->getDevice());
-    engineState->getDebugUtils()->setName("Command buffer blur directional",
-                                          VkObjectType::VK_OBJECT_TYPE_COMMAND_BUFFER,
-                                          _commandBufferDirectional[i]->getCommandBuffer());
-  }
-}
-
-std::shared_ptr<CommandBuffer> DirectionalShadowBlur::getShadowMapBlurCommandBuffer(int frameInFlight) {
-  return _commandBufferDirectional[frameInFlight];
-}
-
-std::vector<std::vector<std::shared_ptr<Framebuffer>>> DirectionalShadowBlur::getShadowMapBlurFramebuffer() {
-  return _shadowMapFramebuffer;
-}
-
-std::shared_ptr<BlurGraphic> DirectionalShadowBlur::getBlur() { return _blur; }
-
-std::vector<std::shared_ptr<Texture>> DirectionalShadowBlur::getShadowMapBlurTextureOut() { return _textureOut; }
-
 PointShadowBlur::PointShadowBlur(std::vector<std::shared_ptr<Cubemap>> cubemapIn,
                                  std::shared_ptr<CommandBuffer> commandBufferTransfer,
                                  std::shared_ptr<RenderPass> renderPass,

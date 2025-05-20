@@ -26,25 +26,6 @@ class DirectionalShadow {
   std::vector<std::shared_ptr<Framebuffer>> getShadowMapFramebuffer();
 };
 
-class DirectionalShadowBlur {
- protected:
-  std::shared_ptr<EngineState> _engineState;
-  std::vector<std::shared_ptr<CommandBuffer>> _commandBufferDirectional;
-  std::vector<std::shared_ptr<Texture>> _textureOut;
-  std::vector<std::vector<std::shared_ptr<Framebuffer>>> _shadowMapFramebuffer;
-  std::shared_ptr<BlurGraphic> _blur;
-
- public:
-  DirectionalShadowBlur(std::vector<std::shared_ptr<Texture>> textureIn,
-                        std::shared_ptr<CommandBuffer> commandBufferTransfer,
-                        std::shared_ptr<RenderPass> renderPass,
-                        std::shared_ptr<EngineState> engineState);
-  std::shared_ptr<CommandBuffer> getShadowMapBlurCommandBuffer(int frameInFlight);
-  std::vector<std::vector<std::shared_ptr<Framebuffer>>> getShadowMapBlurFramebuffer();
-  std::shared_ptr<BlurGraphic> getBlur();
-  std::vector<std::shared_ptr<Texture>> getShadowMapBlurTextureOut();
-};
-
 class PointShadow {
  protected:
   std::shared_ptr<EngineState> _engineState;

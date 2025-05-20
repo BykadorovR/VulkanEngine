@@ -328,67 +328,6 @@ void Core::_drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurGraphicSep
   vkCmdEndRenderPass(commandBuffer->getCommandBuffer());
 }
 
-void Core::_drawShadowMapDirectionalBlur(std::shared_ptr<DirectionalShadow> directionalShadow,
-                                         std::vector<std::shared_ptr<Framebuffer>> framebuffers,
-                                         std::shared_ptr<CommandBuffer> commandBuffer) {
-  auto frameInFlight = _engineState->getFrameInFlight();
-  auto logger = _engineState->getLogger();
-
-  logger->begin("Blur directional " + std::to_string(_timer->getFrameCounter()), commandBuffer);
-  auto [widthFramebuffer, heightFramebuffer] =
-      _blurGraphicDirectional[directionalShadow]->getShadowMapBlurFramebuffer()[0][frameInFlight]->getResolution();
-  VkClearValue clearDepth{.color = {0.f, 0.f, 0.f, 1.f}};
-  VkRenderPassBeginInfo renderPassInfo{
-      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-      .renderPass = _renderPassBlur->getRenderPass(),
-      .framebuffer =
-          _blurGraphicDirectional[directionalShadow]->getShadowMapBlurFramebuffer()[0][frameInFlight]->getBuffer(),
-      .renderArea = {.offset = {0, 0},
-                     .extent = {.width = static_cast<uint32_t>(widthFramebuffer),
-                                .height = static_cast<uint32_t>(heightFramebuffer)}},
-      .clearValueCount = 1,
-      .pClearValues = &clearDepth};
-  vkCmdBeginRenderPass(commandBuffer->getCommandBuffer(), &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-  _blurGraphicDirectional[directionalShadow]->getBlur()->draw(true, commandBuffer);
-  logger->end(commandBuffer);
-  vkCmdEndRenderPass(commandBuffer->getCommandBuffer());
-  // wait blur image to be ready
-  {
-    VkImageMemoryBarrier imageMemoryBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                                            .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                            .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                                            .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-                                            .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-                                            .image = _blurGraphicDirectional[directionalShadow]
-                                                         ->getShadowMapBlurTextureOut()[frameInFlight]
-                                                         ->getImageView()
-                                                         ->getImage()
-                                                         ->getImage(),
-                                            .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
-    vkCmdPipelineBarrier(commandBuffer->getCommandBuffer(), VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &imageMemoryBarrier);
-  }
-
-  renderPassInfo = {
-      .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-      .renderPass = _renderPassBlur->getRenderPass(),
-      .framebuffer =
-          _blurGraphicDirectional[directionalShadow]->getShadowMapBlurFramebuffer()[1][frameInFlight]->getBuffer(),
-      .renderArea = {.offset = {0, 0},
-                     .extent = {.width = static_cast<uint32_t>(widthFramebuffer),
-                                .height = static_cast<uint32_t>(heightFramebuffer)}},
-      .clearValueCount = 1,
-      .pClearValues = &clearDepth};
-  vkCmdBeginRenderPass(commandBuffer->getCommandBuffer(), &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-  logger->begin("Vertical " + std::to_string(_timer->getFrameCounter()), commandBuffer);
-  // Vertical blur
-  _blurGraphicDirectional[directionalShadow]->getBlur()->draw(false, commandBuffer);
-  logger->end(commandBuffer);
-  vkCmdEndRenderPass(commandBuffer->getCommandBuffer());
-
-  logger->end(commandBuffer);
-}
-
 void Core::_computeBloom(std::shared_ptr<CommandBuffer> commandBuffer) {
   auto frameInFlight = _engineState->getFrameInFlight();
   auto logger = _engineState->getLogger();
@@ -694,7 +633,7 @@ void Core::draw() {
             directionalShadowPass->addColorTarget("Directional shadow " + std::to_string(i));
 
             // directional shadow blur
-            if (_blurGraphicDirectional.find(directionalShadows[i]) != _blurGraphicDirectional.end()) {
+            if (_blurSeparateGraphicDirectional.find(directionalShadows[i]) != _blurSeparateGraphicDirectional.end()) {
               auto blur = _blurSeparateGraphicDirectional[directionalShadows[i]];
               for (int s = 0; s < blur.size(); s++) {
                 {
@@ -805,10 +744,11 @@ void Core::draw() {
           auto directionalShadows = _gameState->getLightManager()->getDirectionalShadows();
           for (int i = 0; i < directionalShadows.size(); i++) {
             if (directionalShadows[i] == nullptr) continue;
-            if (_blurGraphicDirectional.find(directionalShadows[i]) != _blurGraphicDirectional.end()) {
-              renderPass->addTextureInput(
-                  "Directional shadow " + std::to_string(i) + " blur vertical output " +
-                  std::to_string(_blurSeparateGraphicDirectional[directionalShadows[i]].size() - 1));
+            if (_blurSeparateGraphicDirectional.find(directionalShadows[i]) != _blurSeparateGraphicDirectional.end()) {
+              std::string nameShadow = "Directional shadow " + std::to_string(i) + " blur vertical output " +
+                                       std::to_string(_blurSeparateGraphicDirectional[directionalShadows[i]].size() -
+                                                      1);
+              renderPass->addTextureInput(nameShadow);
             } else {
               renderPass->addTextureInput("Directional shadow " + std::to_string(i));
             }
@@ -1124,25 +1064,6 @@ std::shared_ptr<DirectionalShadow> Core::createDirectionalShadow(std::shared_ptr
 
   if (blur) {
     auto resolution = shadow->getShadowMapTexture()[0]->getImageView()->getImage()->getResolution();
-    std::vector<std::shared_ptr<Texture>> textureSrc(_engineState->getSettings()->getMaxFramesInFlight());
-    for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-      auto blurImage = std::make_shared<Image>(resolution, 1, 1, _engineState->getSettings()->getShadowMapFormat(),
-                                               VK_IMAGE_TILING_OPTIMAL,
-                                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _engineState);
-      blurImage->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1,
-                              _commandBufferApplication[_engineState->getFrameInFlight()]);
-      auto blurImageView = std::make_shared<ImageView>(blurImage, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1,
-                                                       VK_IMAGE_ASPECT_COLOR_BIT, _engineState);
-      auto filter = VK_FILTER_NEAREST;
-      if (_engineState->getDevice()->isFormatFeatureSupported(_engineState->getSettings()->getShadowMapFormat(),
-                                                              VK_IMAGE_TILING_OPTIMAL,
-                                                              VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
-        filter = VK_FILTER_LINEAR;
-      }
-      textureSrc[i] = std::make_shared<Texture>(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, 1, filter, blurImageView,
-                                                _engineState);
-    }
     std::vector<std::shared_ptr<Texture>> textureDst(_engineState->getSettings()->getMaxFramesInFlight());
     for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
       auto blurImage = std::make_shared<Image>(resolution, 1, 1, _engineState->getSettings()->getShadowMapFormat(),
@@ -1164,17 +1085,13 @@ std::shared_ptr<DirectionalShadow> Core::createDirectionalShadow(std::shared_ptr
     }
 
     auto blurHorizontal = std::make_shared<BlurGraphicSeparate>(
-        true, shadow->getShadowMapTexture(), textureSrc, _commandBufferApplication[_engineState->getFrameInFlight()],
+        true, shadow->getShadowMapTexture(), textureDst, _commandBufferApplication[_engineState->getFrameInFlight()],
         _engineState);
     auto blurVertical = std::make_shared<BlurGraphicSeparate>(
-        false, blurHorizontal->getTextureDst(), textureDst, _commandBufferApplication[_engineState->getFrameInFlight()],
-        _engineState);
+        false, blurHorizontal->getTextureDst(), shadow->getShadowMapTexture(),
+        _commandBufferApplication[_engineState->getFrameInFlight()], _engineState);
 
     _blurSeparateGraphicDirectional[shadow] = {{blurHorizontal, blurVertical}};
-
-    _blurGraphicDirectional[shadow] = std::make_shared<DirectionalShadowBlur>(
-        shadow->getShadowMapTexture(), _commandBufferApplication[_engineState->getFrameInFlight()],
-        _renderPassShadowMap, _engineState);
   }
 
   return shadow;

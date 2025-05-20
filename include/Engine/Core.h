@@ -67,7 +67,6 @@ class Core {
   std::map<std::shared_ptr<DirectionalShadow>,
            std::vector<std::pair<std::shared_ptr<BlurGraphicSeparate>, std::shared_ptr<BlurGraphicSeparate>>>>
       _blurSeparateGraphicDirectional;
-  std::map<std::shared_ptr<DirectionalShadow>, std::shared_ptr<DirectionalShadowBlur>> _blurGraphicDirectional;
   std::map<std::shared_ptr<PointShadow>, std::shared_ptr<PointShadowBlur>> _blurGraphicPoint;
   std::shared_ptr<BS::thread_pool> _pool;
   std::function<void(std::shared_ptr<CommandBuffer> commandBuffer)> _callbackUpdate;
@@ -84,9 +83,6 @@ class Core {
                            std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                            std::shared_ptr<CommandBuffer> commandBuffer);
   void _computeParticles(int index, std::shared_ptr<CommandBuffer> commandBuffer);
-  void _drawShadowMapDirectionalBlur(std::shared_ptr<DirectionalShadow> directionalShadow,
-                                     std::vector<std::shared_ptr<Framebuffer>> framebuffers,
-                                     std::shared_ptr<CommandBuffer> commandBuffer);
   void _drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurGraphicSeparate> blur,
                                               std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                                               std::shared_ptr<CommandBuffer> commandBuffer);
