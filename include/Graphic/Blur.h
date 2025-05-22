@@ -4,6 +4,7 @@
 #include "Vulkan/Descriptor.h"
 #include "Vulkan/Pipeline.h"
 #include "Primitive/Mesh.h"
+#include "Primitive/Cubemap.h"
 
 class Blur {
  protected:

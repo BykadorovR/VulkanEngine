@@ -67,7 +67,16 @@ class Core {
   std::map<std::shared_ptr<DirectionalShadow>,
            std::vector<std::pair<std::shared_ptr<BlurGraphicSeparate>, std::shared_ptr<BlurGraphicSeparate>>>>
       _blurSeparateGraphicDirectional;
-  std::map<std::shared_ptr<PointShadow>, std::shared_ptr<PointShadowBlur>> _blurGraphicPoint;
+  std::map<std::shared_ptr<PointShadow>,
+           std::vector<std::pair<std::vector<std::shared_ptr<BlurGraphicSeparate>>,
+                                 std::vector<std::shared_ptr<BlurGraphicSeparate>>>>>
+      _blurSeparateGraphicPoint;
+  std::map<
+      std::shared_ptr<PointShadow>,
+      std::vector<std::pair<std::pair<std::vector<std::shared_ptr<Texture>>, std::vector<std::shared_ptr<Texture>>>,
+                            std::pair<std::vector<std::shared_ptr<Texture>>, std::vector<std::shared_ptr<Texture>>>>>>
+      _blurSeparateGraphicPointTextures;
+
   std::shared_ptr<BS::thread_pool> _pool;
   std::function<void(std::shared_ptr<CommandBuffer> commandBuffer)> _callbackUpdate;
   std::function<void(int width, int height)> _callbackReset;
@@ -86,10 +95,11 @@ class Core {
   void _drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurGraphicSeparate> blur,
                                               std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                                               std::shared_ptr<CommandBuffer> commandBuffer);
-  void _drawShadowMapPointBlur(std::shared_ptr<PointShadow> pointShadow,
-                               int face,
-                               std::vector<std::shared_ptr<Framebuffer>> framebuffers,
-                               std::shared_ptr<CommandBuffer> commandBuffer);
+  void _drawShadowMapPointSeparableBlur(std::vector<std::shared_ptr<BlurGraphicSeparate>> blur,
+                                        int face,
+                                        std::vector<std::shared_ptr<Framebuffer>> framebuffers,
+                                        std::shared_ptr<CommandBuffer> commandBuffer);
+
   void _computeBloom(std::shared_ptr<CommandBuffer> commandBuffer);
   void _computePostprocessing(std::shared_ptr<CommandBuffer> commandBuffer);
   void _debugVisualizations(std::vector<std::shared_ptr<Framebuffer>> framebuffers,
