@@ -63,7 +63,6 @@ class Core {
   std::vector<std::shared_ptr<ParticleSystem>> _particleSystems;
   std::shared_ptr<Postprocessing> _postprocessing;
   std::shared_ptr<Skybox> _skybox = nullptr;
-  std::shared_ptr<BlurCompute> _blurCompute;
   std::map<std::shared_ptr<DirectionalShadow>,
            std::vector<std::pair<std::shared_ptr<BlurGraphicSeparate>, std::shared_ptr<BlurGraphicSeparate>>>>
       _blurSeparateGraphicDirectional;
@@ -71,10 +70,10 @@ class Core {
            std::vector<std::pair<std::vector<std::shared_ptr<BlurGraphicSeparate>>,
                                  std::vector<std::shared_ptr<BlurGraphicSeparate>>>>>
       _blurSeparateGraphicPoint;
-  std::map<
-      std::shared_ptr<PointShadow>,
-      std::vector<std::pair<std::pair<std::vector<std::shared_ptr<Texture>>, std::vector<std::shared_ptr<Texture>>>,
-                            std::pair<std::vector<std::shared_ptr<Texture>>, std::vector<std::shared_ptr<Texture>>>>>>
+
+  std::vector<std::pair<std::shared_ptr<BlurComputeSeparate>, std::shared_ptr<BlurComputeSeparate>>> _blurBloom;
+  std::map<std::shared_ptr<PointShadow>,
+           std::vector<std::pair<std::vector<std::shared_ptr<Texture>>, std::vector<std::shared_ptr<Texture>>>>>
       _blurSeparateGraphicPointTextures;
 
   std::shared_ptr<BS::thread_pool> _pool;
@@ -100,7 +99,7 @@ class Core {
                                         std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                                         std::shared_ptr<CommandBuffer> commandBuffer);
 
-  void _computeBloom(std::shared_ptr<CommandBuffer> commandBuffer);
+  void _computeBloom(std::shared_ptr<BlurComputeSeparate> blur, std::shared_ptr<CommandBuffer> commandBuffer);
   void _computePostprocessing(std::shared_ptr<CommandBuffer> commandBuffer);
   void _debugVisualizations(std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                             std::shared_ptr<CommandBuffer> commandBuffer);
@@ -164,7 +163,7 @@ class Core {
                                                              bool blur = true);
   std::shared_ptr<PhysicsManager> createPhysicsManager();
   std::shared_ptr<GUI> createGUI();
-  std::shared_ptr<BlurCompute> createBloomBlur();
+  void createBloomBlur();
   std::shared_ptr<Postprocessing> createPostprocessing();
 
   std::shared_ptr<CommandBuffer> getCommandBufferApplication();
@@ -175,7 +174,6 @@ class Core {
   std::vector<std::shared_ptr<PointShadow>> getPointShadows();
   std::vector<std::shared_ptr<DirectionalShadow>> getDirectionalShadows();
   std::shared_ptr<Postprocessing> getPostprocessing();
-  std::shared_ptr<BlurCompute> getBloomBlur();
   std::shared_ptr<GUI> getGUI();
 
   std::shared_ptr<EngineState> getEngineState();

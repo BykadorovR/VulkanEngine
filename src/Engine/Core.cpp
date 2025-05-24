@@ -293,46 +293,17 @@ void Core::_drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurGraphicSep
   vkCmdEndRenderPass(commandBuffer->getCommandBuffer());
 }
 
-void Core::_computeBloom(std::shared_ptr<CommandBuffer> commandBuffer) {
+void Core::_computeBloom(std::shared_ptr<BlurComputeSeparate> blur, std::shared_ptr<CommandBuffer> commandBuffer) {
   auto frameInFlight = _engineState->getFrameInFlight();
   auto logger = _engineState->getLogger();
 
-  int bloomPasses = _engineState->getSettings()->getBloomPasses();
-  // blur cycle:
-  // in - out - horizontal
-  // out - in - vertical
-  for (int i = 0; i < bloomPasses; i++) {
-    logger->begin("Blur horizontal compute " + std::to_string(_timer->getFrameCounter()), commandBuffer);
-    _blurCompute->draw(true, commandBuffer);
-    logger->end(commandBuffer);
+  if (blur->getHorizontal())
+    logger->begin("Blur directional horizontal " + std::to_string(_timer->getFrameCounter()), commandBuffer);
+  else
+    logger->begin("Blur directional vertical " + std::to_string(_timer->getFrameCounter()), commandBuffer);
 
-    // sync between horizontal and vertical
-    // wait dst (textureOut) to be written
-    {
-      VkImageMemoryBarrier colorBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                                        .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-                                        .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                                        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-                                        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-                                        .image = _textureBlurOut[frameInFlight]->getImageView()->getImage()->getImage(),
-                                        .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                                             .baseMipLevel = 0,
-                                                             .levelCount = 1,
-                                                             .baseArrayLayer = 0,
-                                                             .layerCount = 1}};
-      vkCmdPipelineBarrier(commandBuffer->getCommandBuffer(),
-                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,  // srcStageMask
-                           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,  // dstStageMask
-                           0, 0, nullptr, 0, nullptr,
-                           1,             // imageMemoryBarrierCount
-                           &colorBarrier  // pImageMemoryBarriers
-      );
-    }
-
-    logger->begin("Blur vertical compute " + std::to_string(_timer->getFrameCounter()), commandBuffer);
-    _blurCompute->draw(false, commandBuffer);
-    logger->end(commandBuffer);
-  }
+  blur->draw(commandBuffer);
+  logger->end(commandBuffer);
 }
 
 void Core::_computePostprocessing(std::shared_ptr<CommandBuffer> commandBuffer) {
@@ -466,7 +437,6 @@ void Core::_reset() {
     imageView->getImage()->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                                         VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, _commandBufferApplication[frameInFlight]);
   if (_gui) _gui->reset();
-  if (_blurCompute) _blurCompute->reset(_textureBlurIn, _textureBlurOut);
 
   _initializeFramebuffer();
 
@@ -697,11 +667,11 @@ void Core::draw() {
                   }
                   // extract images from textures
                   std::vector<std::shared_ptr<Image>> imagesSrc;
-                  for (auto& texture : auxilary[s].first.first) {
+                  for (auto& texture : auxilary[s].first) {
                     imagesSrc.push_back(texture->getImageView()->getImage());
                   }
                   std::vector<std::shared_ptr<Image>> imagesDst;
-                  for (auto& texture : auxilary[s].first.second) {
+                  for (auto& texture : auxilary[s].second) {
                     imagesDst.push_back(texture->getImageView()->getImage());
                   }
 
@@ -732,7 +702,7 @@ void Core::draw() {
                   }
                   // extract images from textures
                   std::vector<std::shared_ptr<Image>> imagesDst;
-                  for (auto& texture : auxilary[s].second.second) {
+                  for (auto& texture : auxilary[s].first) {
                     imagesDst.push_back(texture->getImageView()->getImage());
                   }
                   _renderGraph->getGraphStorage()->add(
@@ -794,17 +764,40 @@ void Core::draw() {
         }
         {
           // bloom blur
-          if (_blurCompute) {
-            auto blurPass = _renderGraph->getPass("Bloom blur", GraphPassStage::COMPUTE);
-            blurPass->addComputeExecution(std::bind(&Core::_computeBloom, this, std::placeholders::_1));
+          if (_blurBloom.size() > 0) {
             std::vector<std::shared_ptr<Image>> imagesBlurInput;
             for (auto& texture : _textureBlurIn) imagesBlurInput.push_back(texture->getImageView()->getImage());
-            _renderGraph->getGraphStorage()->add("Bloom blur input",
-                                                 std::make_shared<ImageHolderFlight>(imagesBlurInput, _engineState));
-            _renderGraph->getGraphStorage()->add("Bloom blur output",
-                                                 std::make_shared<ImageHolderFlight>(imagesBlurInput, _engineState));
-            blurPass->addTextureInput("Bloom blur input");
-            blurPass->addColorTarget("Bloom blur output");
+
+            std::vector<std::shared_ptr<Image>> imagesBlurOutput;
+            for (auto& texture : _textureBlurOut) imagesBlurOutput.push_back(texture->getImageView()->getImage());
+
+            for (int i = 0; i < _blurBloom.size(); i++) {
+              // horizontal
+              auto blurPassHorizontal = _renderGraph->getPass("Bloom blur horizontal " + std::to_string(i),
+                                                              GraphPassStage::COMPUTE);
+              blurPassHorizontal->addComputeExecution(
+                  std::bind(&Core::_computeBloom, this, _blurBloom[i].first, std::placeholders::_1));
+
+              std::string inputHorizontal = "Bloom blur input";
+              if (i > 0) {
+                inputHorizontal = "Bloom blur vertical output " + std::to_string(i - 1);
+              }
+              blurPassHorizontal->addTextureInput(inputHorizontal);
+
+              _renderGraph->getGraphStorage()->add("Bloom blur horizontal output " + std::to_string(i),
+                                                   std::make_shared<ImageHolderFlight>(imagesBlurOutput, _engineState));
+              blurPassHorizontal->addColorTarget("Bloom blur horizontal output " + std::to_string(i));
+
+              // vertical
+              auto blurPassVertical = _renderGraph->getPass("Bloom blur vertical " + std::to_string(i),
+                                                            GraphPassStage::COMPUTE);
+              blurPassVertical->addComputeExecution(
+                  std::bind(&Core::_computeBloom, this, _blurBloom[i].second, std::placeholders::_1));
+              blurPassVertical->addTextureInput("Bloom blur horizontal output " + std::to_string(i));
+              _renderGraph->getGraphStorage()->add("Bloom blur vertical output " + std::to_string(i),
+                                                   std::make_shared<ImageHolderFlight>(imagesBlurInput, _engineState));
+              blurPassVertical->addColorTarget("Bloom blur vertical output " + std::to_string(i));
+            }
           }
         }
         {
@@ -814,8 +807,9 @@ void Core::draw() {
             postprocessingPass->addComputeExecution(
                 std::bind(&Core::_computePostprocessing, this, std::placeholders::_1));
             postprocessingPass->addTextureInput("Swapchain");
-            if (_blurCompute) {
-              postprocessingPass->addTextureInput("Bloom blur output");
+            if (_blurBloom.size() > 0) {
+              postprocessingPass->addTextureInput("Bloom blur vertical output " +
+                                                  std::to_string(_blurBloom.size() - 1));
             }
             postprocessingPass->addColorTarget("Swapchain");
           }
@@ -1048,10 +1042,13 @@ std::shared_ptr<GUI> Core::createGUI() {
   return _gui;
 }
 
-std::shared_ptr<BlurCompute> Core::createBloomBlur() {
-  _blurCompute = std::make_shared<BlurCompute>(_textureBlurIn, _textureBlurOut, _engineState);
-
-  return _blurCompute;
+void Core::createBloomBlur() {
+  _blurBloom.clear();
+  for (int pass = 0; pass < _engineState->getSettings()->getBloomPasses(); pass++) {
+    auto horizontal = std::make_shared<BlurComputeSeparate>(true, _textureBlurIn, _textureBlurOut, _engineState);
+    auto vertical = std::make_shared<BlurComputeSeparate>(false, _textureBlurOut, _textureBlurIn, _engineState);
+    _blurBloom.push_back({horizontal, vertical});
+  }
 }
 
 std::shared_ptr<Postprocessing> Core::createPostprocessing() {
@@ -1106,7 +1103,7 @@ std::shared_ptr<PointShadow> Core::createPointShadow(std::shared_ptr<PointLight>
       auxilarySrc.push_back(shadow->getShadowMapCubemap()[i]->getTexture());
       auxilaryDst.push_back(cubemapDst[i]->getTexture());
     }
-    _blurSeparateGraphicPointTextures[shadow] = {{{auxilarySrc, auxilaryDst}, {auxilaryDst, auxilarySrc}}};
+    _blurSeparateGraphicPointTextures[shadow] = {{auxilarySrc, auxilaryDst}};
   }
 
   return shadow;
@@ -1191,8 +1188,6 @@ std::vector<std::shared_ptr<DirectionalShadow>> Core::getDirectionalShadows() {
 }
 
 std::shared_ptr<Postprocessing> Core::getPostprocessing() { return _postprocessing; }
-
-std::shared_ptr<BlurCompute> Core::getBloomBlur() { return _blurCompute; }
 
 std::shared_ptr<GUI> Core::getGUI() { return _gui; }
 

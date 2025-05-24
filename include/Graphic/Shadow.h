@@ -32,7 +32,6 @@ class PointShadow {
   std::vector<std::vector<std::shared_ptr<CommandBuffer>>> _commandBufferPoint;
   std::vector<std::shared_ptr<Cubemap>> _shadowMapCubemap;
   std::vector<std::vector<std::shared_ptr<Framebuffer>>> _shadowMapFramebuffer;
-  std::shared_ptr<BlurGraphic> _blur;
 
  public:
   PointShadow(std::shared_ptr<CommandBuffer> commandBufferTransfer,
@@ -41,23 +40,4 @@ class PointShadow {
   std::vector<std::shared_ptr<Cubemap>> getShadowMapCubemap();
   std::vector<std::shared_ptr<CommandBuffer>> getShadowMapCommandBuffer(int frameInFlight);
   std::vector<std::vector<std::shared_ptr<Framebuffer>>> getShadowMapFramebuffer();
-};
-
-class PointShadowBlur {
- protected:
-  std::shared_ptr<EngineState> _engineState;
-  std::vector<std::vector<std::shared_ptr<CommandBuffer>>> _commandBufferPoint;
-  std::vector<std::shared_ptr<Cubemap>> _cubemapOut;
-  std::vector<std::vector<std::vector<std::shared_ptr<Framebuffer>>>> _shadowMapFramebuffer;
-  std::vector<std::shared_ptr<BlurGraphic>> _blur;
-
- public:
-  PointShadowBlur(std::vector<std::shared_ptr<Cubemap>> cubemapIn,
-                  std::shared_ptr<CommandBuffer> commandBufferTransfer,
-                  std::shared_ptr<RenderPass> renderPass,
-                  std::shared_ptr<EngineState> engineState);
-  std::vector<std::shared_ptr<CommandBuffer>> getShadowMapBlurCommandBuffer(int frameInFlight);
-  std::vector<std::vector<std::vector<std::shared_ptr<Framebuffer>>>> getShadowMapBlurFramebuffer();
-  std::vector<std::shared_ptr<BlurGraphic>> getBlur();
-  std::vector<std::shared_ptr<Cubemap>> getShadowMapBlurCubemapOut();
 };
