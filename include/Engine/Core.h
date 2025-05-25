@@ -64,14 +64,14 @@ class Core {
   std::shared_ptr<Postprocessing> _postprocessing;
   std::shared_ptr<Skybox> _skybox = nullptr;
   std::map<std::shared_ptr<DirectionalShadow>,
-           std::vector<std::pair<std::shared_ptr<BlurGraphicSeparate>, std::shared_ptr<BlurGraphicSeparate>>>>
+           std::vector<std::pair<std::shared_ptr<BlurSeparate>, std::shared_ptr<BlurSeparate>>>>
       _blurSeparateGraphicDirectional;
-  std::map<std::shared_ptr<PointShadow>,
-           std::vector<std::pair<std::vector<std::shared_ptr<BlurGraphicSeparate>>,
-                                 std::vector<std::shared_ptr<BlurGraphicSeparate>>>>>
+  std::map<
+      std::shared_ptr<PointShadow>,
+      std::vector<std::pair<std::vector<std::shared_ptr<BlurSeparate>>, std::vector<std::shared_ptr<BlurSeparate>>>>>
       _blurSeparateGraphicPoint;
 
-  std::vector<std::pair<std::shared_ptr<BlurComputeSeparate>, std::shared_ptr<BlurComputeSeparate>>> _blurBloom;
+  std::vector<std::pair<std::shared_ptr<BlurSeparate>, std::shared_ptr<BlurSeparate>>> _blurBloom;
   std::map<std::shared_ptr<PointShadow>,
            std::vector<std::pair<std::vector<std::shared_ptr<Texture>>, std::vector<std::shared_ptr<Texture>>>>>
       _blurSeparateGraphicPointTextures;
@@ -91,15 +91,15 @@ class Core {
                            std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                            std::shared_ptr<CommandBuffer> commandBuffer);
   void _computeParticles(int index, std::shared_ptr<CommandBuffer> commandBuffer);
-  void _drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurGraphicSeparate> blur,
+  void _drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurSeparate> blur,
                                               std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                                               std::shared_ptr<CommandBuffer> commandBuffer);
-  void _drawShadowMapPointSeparableBlur(std::vector<std::shared_ptr<BlurGraphicSeparate>> blur,
+  void _drawShadowMapPointSeparableBlur(std::vector<std::shared_ptr<BlurSeparate>> blur,
                                         int face,
                                         std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                                         std::shared_ptr<CommandBuffer> commandBuffer);
 
-  void _computeBloom(std::shared_ptr<BlurComputeSeparate> blur, std::shared_ptr<CommandBuffer> commandBuffer);
+  void _computeBloom(std::shared_ptr<BlurSeparate> blur, std::shared_ptr<CommandBuffer> commandBuffer);
   void _computePostprocessing(std::shared_ptr<CommandBuffer> commandBuffer);
   void _debugVisualizations(std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                             std::shared_ptr<CommandBuffer> commandBuffer);

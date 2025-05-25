@@ -238,7 +238,7 @@ void Core::_drawShadowMapPoint(int index,
   logger->end(commandBuffer);
 }
 
-void Core::_drawShadowMapPointSeparableBlur(std::vector<std::shared_ptr<BlurGraphicSeparate>> blur,
+void Core::_drawShadowMapPointSeparableBlur(std::vector<std::shared_ptr<BlurSeparate>> blur,
                                             int face,
                                             std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                                             std::shared_ptr<CommandBuffer> commandBuffer) {
@@ -266,7 +266,7 @@ void Core::_drawShadowMapPointSeparableBlur(std::vector<std::shared_ptr<BlurGrap
   vkCmdEndRenderPass(commandBuffer->getCommandBuffer());
 }
 
-void Core::_drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurGraphicSeparate> blur,
+void Core::_drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurSeparate> blur,
                                                   std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                                                   std::shared_ptr<CommandBuffer> commandBuffer) {
   auto frameInFlight = _engineState->getFrameInFlight();
@@ -293,7 +293,7 @@ void Core::_drawShadowMapDirectionalSeparableBlur(std::shared_ptr<BlurGraphicSep
   vkCmdEndRenderPass(commandBuffer->getCommandBuffer());
 }
 
-void Core::_computeBloom(std::shared_ptr<BlurComputeSeparate> blur, std::shared_ptr<CommandBuffer> commandBuffer) {
+void Core::_computeBloom(std::shared_ptr<BlurSeparate> blur, std::shared_ptr<CommandBuffer> commandBuffer) {
   auto frameInFlight = _engineState->getFrameInFlight();
   auto logger = _engineState->getLogger();
 
@@ -1078,8 +1078,8 @@ std::shared_ptr<PointShadow> Core::createPointShadow(std::shared_ptr<PointLight>
       cubemapDst[i] = cubemapBlurOutFaces;
     }
 
-    std::vector<std::shared_ptr<BlurGraphicSeparate>> blurHorizontals(6);
-    std::vector<std::shared_ptr<BlurGraphicSeparate>> blurVerticals(6);
+    std::vector<std::shared_ptr<BlurSeparate>> blurHorizontals(6);
+    std::vector<std::shared_ptr<BlurSeparate>> blurVerticals(6);
     for (int j = 0; j < 6; j++) {
       std::vector<std::shared_ptr<Texture>> texturesIn, texturesOut;
       for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {

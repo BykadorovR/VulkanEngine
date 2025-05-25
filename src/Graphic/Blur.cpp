@@ -1,42 +1,17 @@
 #include "Graphic/Blur.h"
 #include <numbers>
 
-void BlurComputeSeparate::_setWeights(int currentFrame) {
-  std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfo = {
-      {0,
-       {VkDescriptorBufferInfo{.buffer = _blurWeightsSSBO[currentFrame]->getData(),
-                               .offset = 0,
-                               .range = _blurWeightsSSBO[currentFrame]->getSize()}}}};
-  _descriptorSetWeights[currentFrame]->createCustom(bufferInfo, {});
+BlurSeparate::BlurSeparate(bool horizontal,
+                           std::vector<std::shared_ptr<Texture>> src,
+                           std::vector<std::shared_ptr<Texture>> dst,
+                           std::shared_ptr<EngineState> engineState) {
+  _horizontal = horizontal;
+  _textureSrc = src;
+  _textureDst = dst;
+  _engineState = engineState;
 }
 
-void BlurComputeSeparate::_updateDescriptors(int currentFrame) {
-  _blurWeightsSSBO[currentFrame] = std::make_shared<Buffer>(
-      _blurWeights.size() * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState);
-  _blurWeightsSSBO[currentFrame]->setData(_blurWeights.data());
-}
-
-void BlurComputeSeparate::_initialize(std::vector<std::shared_ptr<Texture>> src,
-                                      std::vector<std::shared_ptr<Texture>> dst) {
-  _descriptorSet.resize(_engineState->getSettings()->getMaxFramesInFlight());
-  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++)
-    _descriptorSet[i] = std::make_shared<DescriptorSet>(_textureLayout, _engineState);
-  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    {
-      std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
-          {0,
-           {VkDescriptorImageInfo{.imageView = src[i]->getImageView()->getImageView(),
-                                  .imageLayout = src[i]->getImageView()->getImage()->getImageLayout()}}},
-          {1,
-           {VkDescriptorImageInfo{.imageView = dst[i]->getImageView()->getImageView(),
-                                  .imageLayout = dst[i]->getImageView()->getImage()->getImageLayout()}}}};
-      _descriptorSet[i]->createCustom({}, textureInfoColor);
-    }
-  }
-}
-
-void BlurComputeSeparate::_updateWeights() {
+void BlurSeparate::_updateWeights() {
   _blurWeights.clear();
   float expectedValue = 0;
   float sum = 0;
@@ -49,73 +24,87 @@ void BlurComputeSeparate::_updateWeights() {
   for (auto& coeff : _blurWeights) coeff /= sum;
 }
 
+void BlurSeparate::_updateDescriptors(int currentFrame) {
+  _blurWeightsSSBO[currentFrame] = std::make_shared<Buffer>(
+      _blurWeights.size() * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState);
+  _blurWeightsSSBO[currentFrame]->setData(_blurWeights.data());
+}
+
+std::vector<std::shared_ptr<Texture>> BlurSeparate::getTextureSrc() { return _textureSrc; }
+
+std::vector<std::shared_ptr<Texture>> BlurSeparate::getTextureDst() { return _textureDst; }
+
+bool BlurSeparate::getHorizontal() { return _horizontal; }
+
+void BlurComputeSeparate::_initialize(std::vector<std::shared_ptr<Texture>> src,
+                                      std::vector<std::shared_ptr<Texture>> dst) {
+  _descriptorSet.resize(_engineState->getSettings()->getMaxFramesInFlight());
+  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++)
+    _descriptorSet[i] = std::make_shared<DescriptorSet>(_descriptorSetLayout, _engineState);
+  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
+    {
+      std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
+          {0,
+           {VkDescriptorImageInfo{.imageView = src[i]->getImageView()->getImageView(),
+                                  .imageLayout = src[i]->getImageView()->getImage()->getImageLayout()}}},
+          {1,
+           {VkDescriptorImageInfo{.imageView = dst[i]->getImageView()->getImageView(),
+                                  .imageLayout = dst[i]->getImageView()->getImage()->getImageLayout()}}}};
+      std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfo = {
+          {2,
+           {VkDescriptorBufferInfo{.buffer = _blurWeightsSSBO[i]->getData(),
+                                   .offset = 0,
+                                   .range = _blurWeightsSSBO[i]->getSize()}}}};
+      _descriptorSet[i]->createCustom(bufferInfo, textureInfoColor);
+    }
+  }
+}
+
 BlurComputeSeparate::BlurComputeSeparate(bool horizontal,
                                          std::vector<std::shared_ptr<Texture>> src,
                                          std::vector<std::shared_ptr<Texture>> dst,
-                                         std::shared_ptr<EngineState> engineState) {
-  _engineState = engineState;
-  _horizontal = horizontal;
-  _textureSrc = src;
-  _textureDst = dst;
-
+                                         std::shared_ptr<EngineState> engineState)
+    : BlurSeparate(horizontal, src, dst, engineState) {
   auto shader = std::make_shared<Shader>(_engineState);
   if (horizontal)
     shader->add("shaders/postprocessing/blurHorizontal_compute.spv", VK_SHADER_STAGE_COMPUTE_BIT);
   else
     shader->add("shaders/postprocessing/blurVertical_compute.spv", VK_SHADER_STAGE_COMPUTE_BIT);
 
-  _textureLayout = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-  std::vector<VkDescriptorSetLayoutBinding> layoutBindingTexture{{.binding = 0,
-                                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                                  .descriptorCount = 1,
-                                                                  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-                                                                  .pImmutableSamplers = nullptr},
-                                                                 {.binding = 1,
-                                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                                  .descriptorCount = 1,
-                                                                  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-                                                                  .pImmutableSamplers = nullptr},
-                                                                 {.binding = 2,
-                                                                  .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                                  .descriptorCount = 1,
-                                                                  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-                                                                  .pImmutableSamplers = nullptr}};
-  _textureLayout->createCustom(layoutBindingTexture);
+  _descriptorSetLayout = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
+  std::vector<VkDescriptorSetLayoutBinding> descriptorSetlayoutBinding{
+      {.binding = 0,
+       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+       .descriptorCount = 1,
+       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+       .pImmutableSamplers = nullptr},
+      {.binding = 1,
+       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+       .descriptorCount = 1,
+       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+       .pImmutableSamplers = nullptr},
+      {.binding = 2,
+       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+       .descriptorCount = 1,
+       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+       .pImmutableSamplers = nullptr}};
+  _descriptorSetLayout->createCustom(descriptorSetlayoutBinding);
 
   _blurWeightsSSBO.resize(_engineState->getSettings()->getMaxFramesInFlight());
   _changed.resize(_engineState->getSettings()->getMaxFramesInFlight());
-
-  auto layoutWeights = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-  VkDescriptorSetLayoutBinding layoutBindingWeights = {.binding = 0,
-                                                       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                       .descriptorCount = 1,
-                                                       .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-                                                       .pImmutableSamplers = nullptr};
-  layoutWeights->createCustom({layoutBindingWeights});
-  _descriptorSetWeights.resize(_engineState->getSettings()->getMaxFramesInFlight());
-  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++)
-    _descriptorSetWeights[i] = std::make_shared<DescriptorSet>(layoutWeights, _engineState);
+  _updateWeights();
+  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
+    _updateDescriptors(i);
+    _changed[i] = false;
+  }
 
   _initialize(src, dst);
 
   _pipeline = std::make_shared<PipelineCompute>(_engineState->getDevice());
-  _pipeline->createCustom(
-      shader->getShaderStageInfo(VK_SHADER_STAGE_COMPUTE_BIT),
-      {std::pair{std::string("texture"), _textureLayout}, std::pair{std::string("weights"), layoutWeights}}, {});
-
-  _updateWeights();
-  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    _updateDescriptors(i);
-    _setWeights(i);
-    _changed[i] = false;
-  }
+  _pipeline->createCustom(shader->getShaderStageInfo(VK_SHADER_STAGE_COMPUTE_BIT),
+                          {std::pair{std::string("descriptor"), _descriptorSetLayout}}, {});
 }
-
-std::vector<std::shared_ptr<Texture>> BlurComputeSeparate::getTextureSrc() { return _textureSrc; }
-
-std::vector<std::shared_ptr<Texture>> BlurComputeSeparate::getTextureDst() { return _textureDst; }
-
-bool BlurComputeSeparate::getHorizontal() { return _horizontal; }
 
 void BlurComputeSeparate::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
   auto currentFrame = _engineState->getFrameInFlight();
@@ -130,28 +119,17 @@ void BlurComputeSeparate::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
 
   if (_changed[currentFrame]) {
     _updateDescriptors(currentFrame);
-    _setWeights(currentFrame);
     _changed[currentFrame] = false;
   }
 
   auto pipelineLayout = _pipeline->getDescriptorSetLayout();
   auto computeLayout = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
                                     [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                      return info.first == std::string("texture");
+                                      return info.first == std::string("descriptor");
                                     });
   if (computeLayout != pipelineLayout.end()) {
     vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE,
                             _pipeline->getPipelineLayout(), 0, 1, &descriptorSet->getDescriptorSets(), 0, nullptr);
-  }
-
-  auto weightsLayout = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                    [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                      return info.first == std::string("weights");
-                                    });
-  if (weightsLayout != pipelineLayout.end()) {
-    vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE,
-                            _pipeline->getPipelineLayout(), 1, 1,
-                            &_descriptorSetWeights[currentFrame]->getDescriptorSets(), 0, nullptr);
   }
 
   auto [width, height] = _engineState->getSettings()->getResolution();
@@ -163,12 +141,8 @@ BlurGraphicSeparate::BlurGraphicSeparate(bool horizontal,
                                          std::vector<std::shared_ptr<Texture>> src,
                                          std::vector<std::shared_ptr<Texture>> dst,
                                          std::shared_ptr<CommandBuffer> commandBufferTransfer,
-                                         std::shared_ptr<EngineState> engineState) {
-  _engineState = engineState;
-  _textureSrc = src;
-  _textureDst = dst;
-  _horizontal = horizontal;
-
+                                         std::shared_ptr<EngineState> engineState)
+    : BlurSeparate(horizontal, src, dst, engineState) {
   _resolution = src[0]->getImageView()->getImage()->getResolution();
 
   std::shared_ptr<Shader> shader;
@@ -201,99 +175,52 @@ BlurGraphicSeparate::BlurGraphicSeparate(bool horizontal,
     _changed[i] = false;
   }
 
-  _layoutBlur = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-  std::vector<VkDescriptorSetLayoutBinding> layoutBinding{{.binding = 0,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                           .pImmutableSamplers = nullptr},
-                                                          {.binding = 1,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                           .pImmutableSamplers = nullptr}};
-  _layoutBlur->createCustom(layoutBinding);
+  _descriptorSetLayout = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
+  std::vector<VkDescriptorSetLayoutBinding> descriptorSetlayoutBinding{
+      {.binding = 0,
+       .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+       .descriptorCount = 1,
+       .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+       .pImmutableSamplers = nullptr},
+      {.binding = 1,
+       .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+       .descriptorCount = 1,
+       .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+       .pImmutableSamplers = nullptr}};
+  _descriptorSetLayout->createCustom(descriptorSetlayoutBinding);
 
   _initialize(src);
 
-  if (horizontal) {
-    _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
-    _pipeline->setDepthTest(true);
-    _pipeline->setDepthWrite(true);
-    _pipeline->createCustom(
-        {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-         shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-        {std::pair{std::string("blur"), _layoutBlur}}, {}, _mesh->getBindingDescription(),
-        _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
-                                                 {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
-        _renderPass);
-  } else {
-    _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
-    _pipeline->setDepthTest(true);
-    _pipeline->setDepthWrite(true);
-    _pipeline->createCustom(
-        {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-         shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-        {std::pair{std::string("blur"), _layoutBlur}}, {}, _mesh->getBindingDescription(),
-        _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
-                                                 {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
-        _renderPass);
-  }
-}
-
-void BlurGraphicSeparate::_updateDescriptors(int currentFrame) {
-  _blurWeightsSSBO[currentFrame] = std::make_shared<Buffer>(
-      _blurWeights.size() * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState);
-  _blurWeightsSSBO[currentFrame]->setData(_blurWeights.data());
-}
-
-void BlurGraphicSeparate::_updateWeights() {
-  _blurWeights.clear();
-  float expectedValue = 0;
-  float sum = 0;
-  for (int i = -_kernelSize / 2; i <= _kernelSize / 2; i++) {
-    float value = std::exp(-pow(i, 2) / (2 * pow(_sigma, 2)));
-    _blurWeights.push_back(value);
-    sum += value;
-  }
-
-  for (auto& coeff : _blurWeights) coeff /= sum;
-}
-
-void BlurGraphicSeparate::_setWeights(int currentFrame) {
-  std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfo = {
-      {0,
-       {VkDescriptorBufferInfo{.buffer = _blurWeightsSSBO[currentFrame]->getData(),
-                               .offset = 0,
-                               .range = _blurWeightsSSBO[currentFrame]->getSize()}}}};
-  _descriptorSet[currentFrame]->createCustom(bufferInfo, {});
+  _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+  _pipeline->setDepthTest(true);
+  _pipeline->setDepthWrite(true);
+  _pipeline->createCustom(
+      {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
+       shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
+      {std::pair{std::string("blur"), _descriptorSetLayout}}, {}, _mesh->getBindingDescription(),
+      _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
+                                               {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
+      _renderPass);
 }
 
 void BlurGraphicSeparate::_initialize(std::vector<std::shared_ptr<Texture>> src) {
   _descriptorSet.resize(_engineState->getSettings()->getMaxFramesInFlight());
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    _descriptorSet[i] = std::make_shared<DescriptorSet>(_layoutBlur, _engineState);
+    _descriptorSet[i] = std::make_shared<DescriptorSet>(_descriptorSetLayout, _engineState);
 
-    std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor = {
-        {1,
-         {VkDescriptorBufferInfo{.buffer = _blurWeightsSSBO[i]->getData(),
-                                 .offset = 0,
-                                 .range = _blurWeightsSSBO[i]->getSize()}}}};
     std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
         {0,
          {VkDescriptorImageInfo{.sampler = src[i]->getSampler()->getSampler(),
                                 .imageView = src[i]->getImageView()->getImageView(),
                                 .imageLayout = src[i]->getImageView()->getImage()->getImageLayout()}}}};
+    std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor = {
+        {1,
+         {VkDescriptorBufferInfo{.buffer = _blurWeightsSSBO[i]->getData(),
+                                 .offset = 0,
+                                 .range = _blurWeightsSSBO[i]->getSize()}}}};
     _descriptorSet[i]->createCustom(bufferInfoColor, textureInfoColor);
   }
 }
-
-std::vector<std::shared_ptr<Texture>> BlurGraphicSeparate::getTextureSrc() { return _textureSrc; }
-
-std::vector<std::shared_ptr<Texture>> BlurGraphicSeparate::getTextureDst() { return _textureDst; }
-
-bool BlurGraphicSeparate::getHorizontal() { return _horizontal; }
 
 void BlurGraphicSeparate::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
   int currentFrame = _engineState->getFrameInFlight();
@@ -301,7 +228,6 @@ void BlurGraphicSeparate::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
 
   if (_changed[currentFrame]) {
     _updateDescriptors(currentFrame);
-    _setWeights(currentFrame);
     _changed[currentFrame] = false;
   }
 
