@@ -50,23 +50,6 @@ void Core::_initializeTextures() {
                                                           VK_IMAGE_ASPECT_DEPTH_BIT, _engineState);
 }
 
-void Core::_initializeFramebuffer() {
-  for (int f = 0; f < _engineState->getSettings()->getMaxFramesInFlight(); f++) {
-    for (int s = 0; s < _swapchain->getImageViews().size(); s++) {
-      _frameBufferGraphic[{f, s}] = std::make_shared<Framebuffer>(
-          std::vector{_swapchain->getImageViews()[s], _textureBlurIn[f]->getImageView(), _depthAttachmentImageView},
-          _swapchain->getImageViews()[s]->getImage()->getResolution(), _renderPassGraphic, _engineState->getDevice());
-    }
-  }
-
-  _frameBufferDebug.resize(_swapchain->getImageViews().size());
-  for (int i = 0; i < _frameBufferDebug.size(); i++) {
-    _frameBufferDebug[i] = std::make_shared<Framebuffer>(std::vector{_swapchain->getImageViews()[i]},
-                                                         _swapchain->getImageViews()[i]->getImage()->getResolution(),
-                                                         _renderPassDebug, _engineState->getDevice());
-  }
-}
-
 void Core::initialize() {
   try {
 #ifdef __ANDROID__
@@ -113,7 +96,6 @@ void Core::initialize() {
     _commandBufferApplication[currentFrame]->beginCommands();
     // start transfer command buffer
     _initializeTextures();
-    _initializeFramebuffer();
 
     // change real layout to SRC_KHR but we expect it to be in VK_IMAGE_LAYOUT_GENERAL as start value
     for (auto& imageView : _swapchain->getImageViews()) {
@@ -437,8 +419,6 @@ void Core::_reset() {
     imageView->getImage()->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                                         VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, _commandBufferApplication[frameInFlight]);
   if (_gui) _gui->reset();
-
-  _initializeFramebuffer();
 
   _renderGraph->reset();
 

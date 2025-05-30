@@ -40,8 +40,6 @@ class Core {
   std::shared_ptr<ImageView> _depthAttachmentImageView;
   // for compute render pass isn't needed
   std::shared_ptr<RenderPass> _renderPassShadowMap, _renderPassGraphic, _renderPassDebug, _renderPassBlur;
-  std::vector<std::shared_ptr<Framebuffer>> _frameBufferDebug;
-  std::map<std::pair<int, int>, std::shared_ptr<Framebuffer>> _frameBufferGraphic;
   std::shared_ptr<CommandPool> _commandPoolApplication;
   std::vector<std::shared_ptr<CommandBuffer>> _commandBufferApplication;
 
@@ -106,7 +104,6 @@ class Core {
   void _renderGraphic(std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                       std::shared_ptr<CommandBuffer> commandBuffer);
   void _initializeTextures();
-  void _initializeFramebuffer();
 
   void _displayFrame();
   void _clearUnusedData();
