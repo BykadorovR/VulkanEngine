@@ -64,8 +64,7 @@ void GUI::initialize(std::shared_ptr<CommandBuffer> commandBufferTransfer) {
 
   _fontImage = std::make_shared<Image>(
       std::tuple{texWidth, texHeight}, 1, 1, _engineState->getSettings()->getLoadTextureColorFormat(),
-      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, _engineState);
+      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, _engineState);
   _fontImage->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT,
                            1, 1, commandBufferTransfer);
   _fontImage->copyFrom(stagingBuffer, {0}, commandBufferTransfer);
@@ -120,11 +119,9 @@ void GUI::initialize(std::shared_ptr<CommandBuffer> commandBufferTransfer) {
   auto shader = std::make_shared<Shader>(_engineState);
   shader->add("shaders/UI/ui_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
   shader->add("shaders/UI/ui_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-  _renderPass = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::GUI);
-  _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
-  _pipeline->createCustom({shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-                           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-                          {{"gui", _descriptorSetLayout}}, {}, bindingDescriptor, attributeDescriptor, _renderPass);
+  _pipeline = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(), _engineState->getDevice());
+  _pipeline->createCustom(shader, {{"gui", _descriptorSetLayout}}, {}, bindingDescriptor, attributeDescriptor,
+                          RenderPassScenario::GUI);
   ImGui::NewFrame();
 }
 

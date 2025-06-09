@@ -39,9 +39,6 @@ Sprite::Sprite(std::shared_ptr<CommandBuffer> commandBufferTransfer,
                      commandBufferTransfer);
   _mesh->setIndexes({0, 3, 2, 2, 1, 0}, commandBufferTransfer);
 
-  _renderPass = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::GRAPHIC);
-  _renderPassDepth = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::SHADOW);
-
   // initialize UBO
   _cameraUBOFull.resize(_engineState->getSettings()->getMaxFramesInFlight());
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++)
@@ -80,46 +77,42 @@ Sprite::Sprite(std::shared_ptr<CommandBuffer> commandBufferTransfer,
 
     // initialize Normal (per vertex)
     {
-      auto shader = std::make_shared<Shader>(_engineState);
-      shader->add("shaders/sprite/spriteNormal_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/shape/cubeNormal_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      shader->add("shaders/shape/cubeNormal_geometry.spv", VK_SHADER_STAGE_GEOMETRY_BIT);
+      _shaderNormal = std::make_shared<Shader>(_engineState);
+      _shaderNormal->add("shaders/sprite/spriteNormal_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
+      _shaderNormal->add("shaders/shape/cubeNormal_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+      _shaderNormal->add("shaders/shape/cubeNormal_geometry.spv", VK_SHADER_STAGE_GEOMETRY_BIT);
 
-      _pipelineNormal = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineNormal = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                          _engineState->getDevice());
       _pipelineNormal->setDepthTest(true);
       _pipelineNormal->setDepthWrite(true);
       _pipelineNormal->setCullMode(VK_CULL_MODE_BACK_BIT);
       _pipelineNormal->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_GEOMETRY_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          {{"normal", _descriptorSetLayoutNormalsMesh}}, {}, _mesh->getBindingDescription(),
+          _shaderNormal, {{"normal", _descriptorSetLayoutNormalsMesh}}, {}, _mesh->getBindingDescription(),
           _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
                                                    {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, normal)},
                                                    {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, color)}}),
-          _renderPass);
+          RenderPassScenario::GRAPHIC);
     }
 
     // initialize Tangent (per vertex)
     {
-      auto shader = std::make_shared<Shader>(_engineState);
-      shader->add("shaders/sprite/spriteTangent_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/shape/cubeNormal_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      shader->add("shaders/shape/cubeNormal_geometry.spv", VK_SHADER_STAGE_GEOMETRY_BIT);
+      _shaderTangent = std::make_shared<Shader>(_engineState);
+      _shaderTangent->add("shaders/sprite/spriteTangent_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
+      _shaderTangent->add("shaders/shape/cubeNormal_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+      _shaderTangent->add("shaders/shape/cubeNormal_geometry.spv", VK_SHADER_STAGE_GEOMETRY_BIT);
 
-      _pipelineTangent = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineTangent = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                           _engineState->getDevice());
       _pipelineTangent->setDepthTest(true);
       _pipelineTangent->setDepthWrite(true);
       _pipelineTangent->setCullMode(VK_CULL_MODE_BACK_BIT);
       _pipelineTangent->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_GEOMETRY_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          {{"normal", _descriptorSetLayoutNormalsMesh}}, {}, _mesh->getBindingDescription(),
+          _shaderTangent, {{"normal", _descriptorSetLayoutNormalsMesh}}, {}, _mesh->getBindingDescription(),
           _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
                                                    {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, color)},
                                                    {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex2D, tangent)}}),
-          _renderPass);
+          RenderPassScenario::GRAPHIC);
     }
   }
 
@@ -154,38 +147,36 @@ Sprite::Sprite(std::shared_ptr<CommandBuffer> commandBufferTransfer,
 
     // initialize Color
     {
-      auto shader = std::make_shared<Shader>(_engineState);
-      shader->add("shaders/sprite/spriteColor_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/sprite/spriteColor_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+      _shader[MaterialType::COLOR] = std::make_shared<Shader>(_engineState);
+      _shader[MaterialType::COLOR]->add("shaders/sprite/spriteColor_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
+      _shader[MaterialType::COLOR]->add("shaders/sprite/spriteColor_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
-      _pipeline[MaterialType::COLOR] = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipeline[MaterialType::COLOR] = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                                         _engineState->getDevice());
       _pipeline[MaterialType::COLOR]->setDepthTest(true);
       _pipeline[MaterialType::COLOR]->setDepthWrite(true);
       _pipeline[MaterialType::COLOR]->setCullMode(VK_CULL_MODE_BACK_BIT);
       _pipeline[MaterialType::COLOR]->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout[MaterialType::COLOR], {}, _mesh->getBindingDescription(),
+          _shader[MaterialType::COLOR], _descriptorSetLayout[MaterialType::COLOR], {}, _mesh->getBindingDescription(),
           _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
                                                    {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, color)},
                                                    {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
 
-          _renderPass);
+          RenderPassScenario::GRAPHIC);
       // wireframe one
-      _pipelineWireframe[MaterialType::COLOR] = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineWireframe[MaterialType::COLOR] = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                                                  _engineState->getDevice());
       _pipelineWireframe[MaterialType::COLOR]->setDepthTest(true);
       _pipelineWireframe[MaterialType::COLOR]->setDepthWrite(true);
       _pipelineWireframe[MaterialType::COLOR]->setCullMode(VK_CULL_MODE_BACK_BIT);
       _pipelineWireframe[MaterialType::COLOR]->setPolygonMode(VK_POLYGON_MODE_LINE);
       _pipelineWireframe[MaterialType::COLOR]->setAlphaBlending(false);
       _pipelineWireframe[MaterialType::COLOR]->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout[MaterialType::COLOR], {}, _mesh->getBindingDescription(),
+          _shader[MaterialType::COLOR], _descriptorSetLayout[MaterialType::COLOR], {}, _mesh->getBindingDescription(),
           _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
                                                    {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, color)},
                                                    {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
-          _renderPass);
+          RenderPassScenario::GRAPHIC);
     }
   }
 
@@ -277,35 +268,33 @@ Sprite::Sprite(std::shared_ptr<CommandBuffer> commandBufferTransfer,
 
     // initialize Phong
     {
-      auto shader = std::make_shared<Shader>(_engineState);
-      shader->add("shaders/sprite/spritePhong_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/sprite/spritePhong_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+      _shader[MaterialType::PHONG] = std::make_shared<Shader>(_engineState);
+      _shader[MaterialType::PHONG]->add("shaders/sprite/spritePhong_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
+      _shader[MaterialType::PHONG]->add("shaders/sprite/spritePhong_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
-      _pipeline[MaterialType::PHONG] = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipeline[MaterialType::PHONG] = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                                         _engineState->getDevice());
       _pipeline[MaterialType::PHONG]->setDepthTest(true);
       _pipeline[MaterialType::PHONG]->setDepthWrite(true);
       _pipeline[MaterialType::PHONG]->setCullMode(VK_CULL_MODE_BACK_BIT);
       _pipeline[MaterialType::PHONG]->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout[MaterialType::PHONG],
+          _shader[MaterialType::PHONG], _descriptorSetLayout[MaterialType::PHONG],
           std::map<std::string, VkPushConstantRange>{
               {"constants", {.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(FragmentPush)}}},
-          _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(), _renderPass);
+          _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(), RenderPassScenario::GRAPHIC);
       // wireframe one
-      _pipelineWireframe[MaterialType::PHONG] = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineWireframe[MaterialType::PHONG] = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                                                  _engineState->getDevice());
       _pipelineWireframe[MaterialType::PHONG]->setDepthTest(true);
       _pipelineWireframe[MaterialType::PHONG]->setDepthWrite(true);
       _pipelineWireframe[MaterialType::PHONG]->setPolygonMode(VK_POLYGON_MODE_LINE);
       _pipelineWireframe[MaterialType::PHONG]->setCullMode(VK_CULL_MODE_BACK_BIT);
       _pipelineWireframe[MaterialType::PHONG]->setAlphaBlending(false);
       _pipelineWireframe[MaterialType::PHONG]->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout[MaterialType::PHONG],
+          _shader[MaterialType::PHONG], _descriptorSetLayout[MaterialType::PHONG],
           std::map<std::string, VkPushConstantRange>{
               {"constants", {.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(FragmentPush)}}},
-          _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(), _renderPass);
+          _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(), RenderPassScenario::GRAPHIC);
     }
   }
 
@@ -382,55 +371,52 @@ Sprite::Sprite(std::shared_ptr<CommandBuffer> commandBufferTransfer,
 
     // initialize PBR
     {
-      auto shader = std::make_shared<Shader>(_engineState);
-      shader->add("shaders/sprite/spritePBR_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/sprite/spritePBR_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+      _shader[MaterialType::PBR] = std::make_shared<Shader>(_engineState);
+      _shader[MaterialType::PBR]->add("shaders/sprite/spritePBR_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
+      _shader[MaterialType::PBR]->add("shaders/sprite/spritePBR_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
 
-      _pipeline[MaterialType::PBR] = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipeline[MaterialType::PBR] = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                                       _engineState->getDevice());
       _pipeline[MaterialType::PBR]->setDepthTest(true);
       _pipeline[MaterialType::PBR]->setDepthWrite(true);
       _pipeline[MaterialType::PBR]->setCullMode(VK_CULL_MODE_BACK_BIT);
       _pipeline[MaterialType::PBR]->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout[MaterialType::PBR],
+          _shader[MaterialType::PBR], _descriptorSetLayout[MaterialType::PBR],
           std::map<std::string, VkPushConstantRange>{
               {"constants", {.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(FragmentPush)}}},
-          _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(), _renderPass);
+          _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(), RenderPassScenario::GRAPHIC);
       // wireframe one
-      _pipelineWireframe[MaterialType::PBR] = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineWireframe[MaterialType::PBR] = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                                                _engineState->getDevice());
       _pipelineWireframe[MaterialType::PBR]->setDepthTest(true);
       _pipelineWireframe[MaterialType::PBR]->setDepthWrite(true);
       _pipelineWireframe[MaterialType::PBR]->setCullMode(VK_CULL_MODE_BACK_BIT);
       _pipelineWireframe[MaterialType::PBR]->setPolygonMode(VK_POLYGON_MODE_LINE);
       _pipelineWireframe[MaterialType::PBR]->setAlphaBlending(false);
       _pipelineWireframe[MaterialType::PBR]->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout[MaterialType::PBR],
+          _shader[MaterialType::PBR], _descriptorSetLayout[MaterialType::PBR],
           std::map<std::string, VkPushConstantRange>{
               {"constants", {.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(FragmentPush)}}},
-          _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(), _renderPass);
+          _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(), RenderPassScenario::GRAPHIC);
     }
   }
 
   // initialize depth directional
   {
-    auto shader = std::make_shared<Shader>(_engineState);
-    shader->add("shaders/sprite/spriteDepth_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-    shader->add("shaders/sprite/spriteDepthDirectional_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-    _pipelineDirectional = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+    _shaderDirectional = std::make_shared<Shader>(_engineState);
+    _shaderDirectional->add("shaders/sprite/spriteDepth_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
+    _shaderDirectional->add("shaders/sprite/spriteDepthDirectional_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+    _pipelineDirectional = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                             _engineState->getDevice());
     _pipelineDirectional->setDepthBias(true);
     // needed to not overwrite "depth" texture by objects that are drawn later
     _pipelineDirectional->setColorBlendOp(VK_BLEND_OP_MIN);
     _pipelineDirectional->createCustom(
-        {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-         shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-        {{"depth", _descriptorSetLayoutDepth}}, {}, _mesh->getBindingDescription(),
+        _shaderDirectional, {{"depth", _descriptorSetLayoutDepth}}, {}, _mesh->getBindingDescription(),
         _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
                                                  {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, color)},
                                                  {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
-        _renderPassDepth);
+        RenderPassScenario::SHADOW);
   }
 
   // initialize depth point
@@ -442,21 +428,19 @@ Sprite::Sprite(std::shared_ptr<CommandBuffer> commandBufferTransfer,
         .size = sizeof(FragmentPointLightPushDepth),
     };
 
-    auto shader = std::make_shared<Shader>(_engineState);
-    shader->add("shaders/sprite/spriteDepth_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-    shader->add("shaders/sprite/spriteDepthPoint_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-    _pipelinePoint = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+    _shaderPoint = std::make_shared<Shader>(_engineState);
+    _shaderPoint->add("shaders/sprite/spriteDepth_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
+    _shaderPoint->add("shaders/sprite/spriteDepthPoint_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+    _pipelinePoint = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(), _engineState->getDevice());
     _pipelinePoint->setDepthBias(true);
     // needed to not overwrite "depth" texture by objects that are drawn later
     _pipelinePoint->setColorBlendOp(VK_BLEND_OP_MIN);
     _pipelinePoint->createCustom(
-        {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-         shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-        {{"depth", _descriptorSetLayoutDepth}}, defaultPushConstants, _mesh->getBindingDescription(),
+        _shaderPoint, {{"depth", _descriptorSetLayoutDepth}}, defaultPushConstants, _mesh->getBindingDescription(),
         _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
                                                  {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, color)},
                                                  {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
-        _renderPassDepth);
+        RenderPassScenario::SHADOW);
   }
 }
 

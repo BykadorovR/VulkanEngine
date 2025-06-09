@@ -41,7 +41,6 @@ struct Settings {
   int _maxPointLights = 4;
   int _anisotropicSamples = 0;
   // TODO: protect by mutex?
-  int _bloomPasses = 0;
   int _desiredFPS = 250;
   std::vector<std::tuple<int, float>> _attenuations = {{7, 1.8},      {13, 0.44},    {20, 0.20},    {32, 0.07},
                                                        {50, 0.032},   {65, 0.017},   {100, 0.0075}, {160, 0.0028},
@@ -75,7 +74,6 @@ struct Settings {
   void setMaxFramesInFlight(int maxFramesInFlight);
   void setThreadsInPool(int threadsInPool);
   void setClearColor(VkClearColorValue clearColor);
-  void setBloomPasses(int number);
   void setAnisotropicSamples(int number);
   void setDesiredFPS(int fps);
   void setPoolSize(int poolSizeDescriptorSets,
@@ -101,7 +99,6 @@ struct Settings {
   VkFormat getLoadTextureAuxilaryFormat();
   VkFormat getDepthFormat();
   VkFormat getShadowMapFormat();
-  int getBloomPasses();
   VkClearColorValue getClearColor();
   int getAnisotropicSamples();
   int getDesiredFPS();

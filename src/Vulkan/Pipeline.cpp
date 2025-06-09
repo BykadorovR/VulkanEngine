@@ -15,11 +15,14 @@ VkPipeline& Pipeline::getPipeline() { return _pipeline; }
 VkPipelineLayout& Pipeline::getPipelineLayout() { return _pipelineLayout; }
 
 Pipeline::~Pipeline() {
-  vkDestroyPipeline(_device->getLogicalDevice(), _pipeline, nullptr);
-  vkDestroyPipelineLayout(_device->getLogicalDevice(), _pipelineLayout, nullptr);
+  if (_pipeline != VK_NULL_HANDLE) vkDestroyPipeline(_device->getLogicalDevice(), _pipeline, nullptr);
+  if (_pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(_device->getLogicalDevice(), _pipelineLayout, nullptr);
 }
 
-PipelineGraphic::PipelineGraphic(std::shared_ptr<Device> device) : Pipeline(device) {
+PipelineGraphic::PipelineGraphic(std::shared_ptr<RenderPassManager> renderPassManager, std::shared_ptr<Device> device)
+    : Pipeline(device) {
+  _renderPassManager = renderPassManager;
+
   _inputAssembly = VkPipelineInputAssemblyStateCreateInfo{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
       .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -104,13 +107,9 @@ void PipelineGraphic::setTesselation(int patchControlPoints) {
       .patchControlPoints = static_cast<uint32_t>(patchControlPoints)};
 }
 
-void PipelineGraphic::createCustom(
-    std::vector<VkPipelineShaderStageCreateInfo> shaderStages,
+void PipelineGraphic::_createPipelineLayout(
     std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
-    std::map<std::string, VkPushConstantRange> pushConstants,
-    VkVertexInputBindingDescription bindingDescription,
-    std::vector<VkVertexInputAttributeDescription> attributeDescriptions,
-    std::shared_ptr<RenderPass> renderPass) {
+    std::map<std::string, VkPushConstantRange> pushConstants) {
   _descriptorSetLayout = descriptorSetLayout;
   _pushConstants = pushConstants;
 
@@ -133,6 +132,16 @@ void PipelineGraphic::createCustom(
       VK_SUCCESS) {
     throw std::runtime_error("failed to create pipeline layout!");
   }
+}
+
+void PipelineGraphic::_createCustomStatic(
+    std::shared_ptr<Shader> shader,
+    std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
+    std::map<std::string, VkPushConstantRange> pushConstants,
+    VkVertexInputBindingDescription bindingDescription,
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions,
+    std::shared_ptr<RenderPass> renderPass) {
+  _createPipelineLayout(descriptorSetLayout, pushConstants);
 
   // create pipeline
   VkPipelineVertexInputStateCreateInfo vertexInputInfo{
@@ -147,6 +156,7 @@ void PipelineGraphic::createCustom(
   _colorBlending.attachmentCount = blendAttachments.size();
   _colorBlending.pAttachments = blendAttachments.data();
 
+  auto shaderStages = shader->getShaderStageInfos();
   VkGraphicsPipelineCreateInfo pipelineInfo{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
                                             .stageCount = static_cast<uint32_t>(shaderStages.size()),
                                             .pStages = shaderStages.data(),
@@ -170,10 +180,81 @@ void PipelineGraphic::createCustom(
   }
 }
 
+void PipelineGraphic::createCustom(
+    std::shared_ptr<Shader> shader,
+    std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
+    std::map<std::string, VkPushConstantRange> pushConstants,
+    VkVertexInputBindingDescription bindingDescription,
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions,
+    RenderPassScenario renderPassScenario) {
+  if (_renderPassManager->getRenderPass(renderPassScenario)) {
+    _createCustomStatic(shader, descriptorSetLayout, pushConstants, bindingDescription, attributeDescriptions,
+                        _renderPassManager->getRenderPass(renderPassScenario));
+  } else {
+    _createPipelineLayout(descriptorSetLayout, pushConstants);
+
+    _shader = shader;
+    _bindingDescription = bindingDescription;
+    _attributeDescriptions = attributeDescriptions;
+    _renderPassManager->subscribe(renderPassScenario,
+                                  std::bind(&PipelineGraphic::_notifyDynamic, this, std::placeholders::_1));
+  }
+}
+
+void PipelineGraphic::createCustom(
+    std::shared_ptr<Shader> shader,
+    std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
+    std::map<std::string, VkPushConstantRange> pushConstants,
+    VkVertexInputBindingDescription bindingDescription,
+    std::vector<VkVertexInputAttributeDescription> attributeDescriptions,
+    std::shared_ptr<RenderPass> renderPass) {
+  _createCustomStatic(shader, descriptorSetLayout, pushConstants, bindingDescription, attributeDescriptions,
+                      renderPass);
+}
+
+void PipelineGraphic::_notifyDynamic(std::shared_ptr<RenderPass> renderPass) {
+  // create pipeline
+  VkPipelineVertexInputStateCreateInfo vertexInputInfo{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = &_bindingDescription,
+      .vertexAttributeDescriptionCount = static_cast<uint32_t>(_attributeDescriptions.size()),
+      .pVertexAttributeDescriptions = _attributeDescriptions.data()};
+
+  std::vector<VkPipelineColorBlendAttachmentState> blendAttachments(renderPass->getColorAttachmentNumber(),
+                                                                    _blendAttachmentState);
+  _colorBlending.attachmentCount = blendAttachments.size();
+  _colorBlending.pAttachments = blendAttachments.data();
+
+  auto shaderStages = _shader->getShaderStageInfos();
+  _pipelineInfoDynamic = VkGraphicsPipelineCreateInfo{.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                                                      .stageCount = static_cast<uint32_t>(shaderStages.size()),
+                                                      .pStages = shaderStages.data(),
+                                                      .pVertexInputState = &vertexInputInfo,
+                                                      .pInputAssemblyState = &_inputAssembly,
+                                                      .pViewportState = &_viewportState,
+                                                      .pRasterizationState = &_rasterizer,
+                                                      .pMultisampleState = &_multisampling,
+                                                      .pDepthStencilState = &_depthStencil,
+                                                      .pColorBlendState = &_colorBlending,
+                                                      .pDynamicState = &_dynamicState,
+                                                      .layout = _pipelineLayout,
+                                                      .renderPass = renderPass->getRenderPass(),
+                                                      .subpass = 0,
+                                                      .basePipelineHandle = VK_NULL_HANDLE};
+  if (_tessellationState) _pipelineInfoDynamic.pTessellationState = &_tessellationState.value();
+
+  auto status = vkCreateGraphicsPipelines(_device->getLogicalDevice(), VK_NULL_HANDLE, 1, &_pipelineInfoDynamic,
+                                          nullptr, &_pipeline);
+  if (status != VK_SUCCESS) {
+    throw std::runtime_error("failed to create graphics pipeline!");
+  }
+}
+
 PipelineCompute::PipelineCompute(std::shared_ptr<Device> device) : Pipeline(device) {}
 
 void PipelineCompute::createCustom(
-    VkPipelineShaderStageCreateInfo shaderStage,
+    std::shared_ptr<Shader> shader,
     std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
     std::map<std::string, VkPushConstantRange> pushConstants) {
   _descriptorSetLayout = descriptorSetLayout;
@@ -206,7 +287,7 @@ void PipelineCompute::createCustom(
   computePipelineCreateInfo.layout = _pipelineLayout;
   computePipelineCreateInfo.flags = 0;
   //
-  computePipelineCreateInfo.stage = shaderStage;
+  computePipelineCreateInfo.stage = shader->getShaderStageInfo(VK_SHADER_STAGE_COMPUTE_BIT);
   vkCreateComputePipelines(_device->getLogicalDevice(), VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr,
                            &_pipeline);
 }

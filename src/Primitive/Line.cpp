@@ -37,18 +37,15 @@ Line::Line(std::shared_ptr<CommandBuffer> commandBufferTransfer,
   auto shader = std::make_shared<Shader>(engineState);
   shader->add("shaders/line/line_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
   shader->add("shaders/line/line_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-  _renderPass = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::GRAPHIC);
-  _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+  _pipeline = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(), _engineState->getDevice());
   _pipeline->setDepthTest(true);
   _pipeline->setDepthWrite(true);
   _pipeline->setTopology(VK_PRIMITIVE_TOPOLOGY_LINE_LIST);
   _pipeline->createCustom(
-      {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-       shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-      {std::pair{std::string("camera"), cameraLayout}}, {}, _mesh->getBindingDescription(),
+      shader, {std::pair{std::string("camera"), cameraLayout}}, {}, _mesh->getBindingDescription(),
       _mesh->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
                                                {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}}),
-      _renderPass);
+      RenderPassScenario::GRAPHIC);
 }
 
 std::shared_ptr<MeshDynamic3D> Line::getMesh() { return _mesh; }

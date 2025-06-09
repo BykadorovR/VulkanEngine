@@ -31,7 +31,15 @@ void Shader::setSpecializationInfo(VkSpecializationInfo info, VkShaderStageFlagB
   _shaders[type].pSpecializationInfo = &_specializationInfo;
 }
 
-VkPipelineShaderStageCreateInfo& Shader::getShaderStageInfo(VkShaderStageFlagBits type) { return _shaders[type]; }
+std::vector<VkPipelineShaderStageCreateInfo> Shader::getShaderStageInfos() {
+  std::vector<VkPipelineShaderStageCreateInfo> shaderStageInfos;
+  for (auto [key, value] : _shaders) {
+    shaderStageInfos.push_back(value);
+  }
+  return shaderStageInfos;
+}
+
+VkPipelineShaderStageCreateInfo Shader::getShaderStageInfo(VkShaderStageFlagBits type) { return _shaders[type]; }
 
 Shader::~Shader() {
   for (auto& [type, shader] : _shaders)

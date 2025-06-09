@@ -26,7 +26,6 @@ class TerrainCompositionDebug : public TerrainDebug {
   std::vector<std::shared_ptr<DescriptorSet>> _descriptorSetNormal;
   std::shared_ptr<PipelineGraphic> _pipeline, _pipelineWireframe;
   std::shared_ptr<PipelineGraphic> _pipelineNormalMesh, _pipelineTangentMesh;
-  std::shared_ptr<RenderPass> _renderPass;
   int _pickedTile = -1;
   glm::ivec2 _pickedPixel = glm::ivec2(-1, -1);
   bool _showWireframe = false, _showNormals = false, _showPatches = false;
@@ -72,7 +71,6 @@ class TerrainComposition : public TerrainGPU {
   std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> _descriptorSetLayoutShadows;
   std::vector<std::vector<std::vector<std::shared_ptr<DescriptorSet>>>> _descriptorSetCameraDepth;
   std::map<MaterialType, std::shared_ptr<PipelineGraphic>> _pipeline;
-  std::shared_ptr<RenderPass> _renderPass, _renderPassShadow;
   std::shared_ptr<PipelineGraphic> _pipelineDirectional, _pipelinePoint;
   std::vector<std::shared_ptr<Buffer>> _patchDescriptionSSBO;
 

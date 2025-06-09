@@ -11,7 +11,10 @@ class Image {
   VmaAllocation _imageMemory;
   VkFormat _format;
   int _layers;
+  int _mipMapLevels;
+  VkImageTiling _tiling;
   bool _external = false;
+  VkImageUsageFlags _usage;
   VkImageLayout _imageLayout;
   std::shared_ptr<Buffer> _stagingBuffer;
 
@@ -23,7 +26,6 @@ class Image {
         VkFormat format,
         VkImageTiling tiling,
         VkImageUsageFlags usage,
-        VkMemoryPropertyFlags properties,
         std::shared_ptr<EngineState> engineState);
 
   void setData(std::shared_ptr<Buffer> buffer);
@@ -45,6 +47,9 @@ class Image {
   VkFormat& getFormat();
   VkImageLayout& getImageLayout();
   int getLayersNumber();
+  int getMipMapLevels();
+  VkImageTiling getTiling();
+  VkImageUsageFlags getUsage();
 
   ~Image();
 };

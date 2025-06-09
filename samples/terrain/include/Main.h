@@ -38,7 +38,6 @@ class Main {
   std::shared_ptr<TerrainPhysics> _terrainPhysics;
   bool _showLoD = false, _showWireframe = false, _showNormals = false, _showPatches = false;
   int _typeIndex = 1;
-  int _interpolationIndex = 0;
   char _terrainPath[256] = "";
   int _patchX = 64, _patchY = 64;
   float _heightScale = 64.f;
@@ -53,7 +52,6 @@ class Main {
   std::vector<int> _patchTextures;
   std::vector<int> _patchRotationsIndex;
 
-  enum class InrepolationMode { INTERPOLATION, COMPOSITION } _interpolationMode = InrepolationMode::INTERPOLATION;
   void _loadTerrain(std::string path);
   void _createTerrainColor(std::string path);
   void _createTerrainPhong(std::string path);

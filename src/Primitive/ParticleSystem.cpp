@@ -75,18 +75,16 @@ void ParticleSystem::_initializeGraphic() {
                                                          .stride = sizeof(Particle),
                                                          .inputRate = VK_VERTEX_INPUT_RATE_VERTEX};
 
-  _graphicPipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+  _graphicPipeline = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(), _engineState->getDevice());
   _graphicPipeline->setCullMode(VK_CULL_MODE_BACK_BIT);
   _graphicPipeline->setDepthTest(true);
   _graphicPipeline->setTopology(VK_PRIMITIVE_TOPOLOGY_POINT_LIST);
   _graphicPipeline->createCustom(
-      {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-       shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-      {std::pair{std::string("graphic"), descriptorSetLayoutGraphic}},
+      shader, {std::pair{std::string("graphic"), descriptorSetLayoutGraphic}},
       std::map<std::string, VkPushConstantRange>{
           {std::string("vertex"),
            VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_VERTEX_BIT, .offset = 0, .size = sizeof(VertexPush)}}},
-      bindingDescriptions, attributeDescriptions, renderPass);
+      bindingDescriptions, attributeDescriptions, RenderPassScenario::GRAPHIC);
 }
 
 void ParticleSystem::_initializeCompute() {
@@ -142,8 +140,7 @@ void ParticleSystem::_initializeCompute() {
   shader->add("shaders/particles/particle_compute.spv", VK_SHADER_STAGE_COMPUTE_BIT);
 
   _computePipeline = std::make_shared<PipelineCompute>(_engineState->getDevice());
-  _computePipeline->createCustom(shader->getShaderStageInfo(VK_SHADER_STAGE_COMPUTE_BIT),
-                                 {{"computeSSBO", setLayoutSSBOCompute}}, {});
+  _computePipeline->createCustom(shader, {{"computeSSBO", setLayoutSSBOCompute}}, {});
 }
 
 void ParticleSystem::setPointScale(float pointScale) { _pointScale = pointScale; }

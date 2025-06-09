@@ -135,7 +135,6 @@ Main::Main() {
   };
 
   auto postprocessing = _core->createPostprocessing();
-  _core->createBloomBlur();
 
   _pointLightHorizontal = _core->createPointLight();
   _core->createPointShadow(_pointLightHorizontal);

@@ -2,7 +2,6 @@
 #include <chrono>
 #include <future>
 #include "Main.h"
-#include "Primitive/TerrainInterpolation.h"
 #include "Primitive/TerrainComposition.h"
 #include <nlohmann/json.hpp>
 
@@ -30,17 +29,7 @@ void InputHandler::scrollNotify(double xOffset, double yOffset) {}
 
 void Main::_createTerrainPhong(std::string path) {
   auto heightmap = _core->loadImageCPU(path);
-  switch (_interpolationMode) {
-    case InrepolationMode::INTERPOLATION:
-      _terrain = _core->createTerrainInterpolation(heightmap);
-      if (_stripeLeft.has_value())
-        std::dynamic_pointer_cast<TerrainInterpolation>(_terrain)->setStripes(_stripeLeft.value(), _stripeTop.value(),
-                                                                              _stripeRight.value(), _stripeBot.value());
-      break;
-    case InrepolationMode::COMPOSITION:
-      _terrain = _core->createTerrainComposition(heightmap);
-      break;
-  }
+  _terrain = _core->createTerrainComposition(heightmap);
   _terrain->setPatchNumber(_patchX, _patchY);
   _terrain->setPatchRotations(_patchRotationsIndex);
   _terrain->setPatchTextures(_patchTextures);
@@ -56,17 +45,7 @@ void Main::_createTerrainPhong(std::string path) {
 
 void Main::_createTerrainPBR(std::string path) {
   auto heightmap = _core->loadImageCPU(path);
-  switch (_interpolationMode) {
-    case InrepolationMode::INTERPOLATION:
-      _terrain = _core->createTerrainInterpolation(heightmap);
-      if (_stripeLeft.has_value())
-        std::dynamic_pointer_cast<TerrainInterpolation>(_terrain)->setStripes(_stripeLeft.value(), _stripeTop.value(),
-                                                                              _stripeRight.value(), _stripeBot.value());
-      break;
-    case InrepolationMode::COMPOSITION:
-      _terrain = _core->createTerrainComposition(heightmap);
-      break;
-  }
+  _terrain = _core->createTerrainComposition(heightmap);
   _terrain->setPatchNumber(_patchX, _patchY);
   _terrain->setPatchRotations(_patchRotationsIndex);
   _terrain->setPatchTextures(_patchTextures);
@@ -82,17 +61,7 @@ void Main::_createTerrainPBR(std::string path) {
 
 void Main::_createTerrainColor(std::string path) {
   auto heightmap = _core->loadImageCPU(path);
-  switch (_interpolationMode) {
-    case InrepolationMode::INTERPOLATION:
-      _terrain = _core->createTerrainInterpolation(heightmap);
-      if (_stripeLeft.has_value())
-        std::dynamic_pointer_cast<TerrainInterpolation>(_terrain)->setStripes(_stripeLeft.value(), _stripeTop.value(),
-                                                                              _stripeRight.value(), _stripeBot.value());
-      break;
-    case InrepolationMode::COMPOSITION:
-      _terrain = _core->createTerrainComposition(heightmap);
-      break;
-  }
+  _terrain = _core->createTerrainComposition(heightmap);
   _terrain->setPatchNumber(_patchX, _patchY);
   _terrain->setPatchRotations(_patchRotationsIndex);
   _terrain->setPatchTextures(_patchTextures);
@@ -130,18 +99,9 @@ void Main::_loadTerrain(std::string path) {
 }
 
 void Main::_createTerrainDebug(std::string path) {
-  switch (_interpolationMode) {
-    case InrepolationMode::INTERPOLATION:
-      _terrainDebug = std::make_shared<TerrainInterpolationDebug>(
-          _core->loadImageCPU(path), std::pair{_patchX, _patchY}, _core->getCommandBufferApplication(), _gui,
-          _core->getGameState(), _core->getEngineState());
-      break;
-    case InrepolationMode::COMPOSITION:
-      _terrainDebug = std::make_shared<TerrainCompositionDebug>(_core->loadImageCPU(path), std::pair{_patchX, _patchY},
-                                                                _core->getCommandBufferApplication(), _gui,
-                                                                _core->getGameState(), _core->getEngineState());
-      break;
-  }
+  _terrainDebug = std::make_shared<TerrainCompositionDebug>(_core->loadImageCPU(path), std::pair{_patchX, _patchY},
+                                                            _core->getCommandBufferApplication(), _gui,
+                                                            _core->getGameState(), _core->getEngineState());
 
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_terrainDebug));
   _terrainDebug->setTerrainPhysics(_terrainPhysics, _terrainCPU);
@@ -440,36 +400,6 @@ void Main::update(std::shared_ptr<CommandBuffer> commandBuffer) {
                                                   {"Tesselation max", &_maxTessellationLevel}};
     if (_gui->drawInputInt(tesselationLevels)) {
       _terrain->setTessellationLevel(_minTessellationLevel, _maxTessellationLevel);
-    }
-
-    std::map<std::string, int*> interpolationType;
-    interpolationType["##Interpolation"] = &_interpolationIndex;
-    if (_gui->drawListBox({"Interpolation", "Composition"}, interpolationType, 2)) {
-      switch (_interpolationIndex) {
-        case 0:
-          _interpolationMode = InrepolationMode::INTERPOLATION;
-          break;
-        case 1:
-          _interpolationMode = InrepolationMode::COMPOSITION;
-          break;
-      }
-      if (_showTerrain) _core->removeDrawable(_terrain);
-      switch (_typeIndex) {
-        case 0:
-          _createTerrainColor("../assets/heightmap.png");
-          break;
-        case 1:
-          _createTerrainPhong("../assets/heightmap.png");
-          break;
-        case 2:
-          _createTerrainPBR("../assets/heightmap.png");
-          break;
-      }
-      if (_showTerrain) _core->addDrawable(_terrain);
-
-      if (_showDebug) _core->removeDrawable(_terrainDebug);
-      _createTerrainDebug("../assets/heightmap.png");
-      if (_showDebug) _core->addDrawable(_terrainDebug);
     }
 
     _gui->drawInputText("##Path", _terrainPath, sizeof(_terrainPath));

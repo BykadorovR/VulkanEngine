@@ -53,7 +53,6 @@ Main::Main() {
   _core = std::make_shared<Core>(settings);
   _core->initialize();
   _gui = _core->createGUI();
-  _core->createBloomBlur();
   _core->createPostprocessing();
 
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
@@ -175,7 +174,7 @@ Main::Main() {
                                            settings->getLoadTextureColorFormat(), mipMapLevels);
     auto tile3Color = _core->createTexture("../../terrain/assets/ground/albedo.png",
                                            settings->getLoadTextureColorFormat(), mipMapLevels);
-    auto terrainPhong = _core->createTerrainInterpolation(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
+    auto terrainPhong = _core->createTerrainComposition(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
     terrainPhong->setPatchNumber(12, 12);
     terrainPhong->initialize(_core->getCommandBufferApplication());
     auto materialPhong = _core->createMaterialPhong(MaterialTarget::TERRAIN);
@@ -230,18 +229,6 @@ void Main::update() {
   if (_core->getGUI()->drawInputFloat({{"gamma", &gamma}})) _core->getPostprocessing()->setGamma(gamma);
   float exposure = _core->getPostprocessing()->getExposure();
   if (_core->getGUI()->drawInputFloat({{"exposure", &exposure}})) _core->getPostprocessing()->setExposure(exposure);
-  int blurKernelSize = _core->getBloomBlur()->getKernelSize();
-  if (_core->getGUI()->drawInputInt({{"Kernel", &blurKernelSize}})) {
-    _core->getBloomBlur()->setKernelSize(blurKernelSize);
-  }
-  int blurSigma = _core->getBloomBlur()->getSigma();
-  if (_core->getGUI()->drawInputInt({{"Sigma", &blurSigma}})) {
-    _core->getBloomBlur()->setSigma(blurSigma);
-  }
-  int bloomPasses = _core->getEngineState()->getSettings()->getBloomPasses();
-  if (_core->getGUI()->drawInputInt({{"Passes", &bloomPasses}})) {
-    _core->getEngineState()->getSettings()->setBloomPasses(bloomPasses);
-  }
   _core->getGUI()->drawText({"Press 'c' to turn cursor on/off"});
   _core->getGUI()->endWindow();
 }

@@ -13,7 +13,7 @@ Cubemap::Cubemap(std::shared_ptr<BufferImage> data,
   // image
   // usage VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
   _image = std::make_shared<Image>(data->getResolution(), data->getNumber(), mipMapLevels, format,
-                                   VK_IMAGE_TILING_OPTIMAL, usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, engineState);
+                                   VK_IMAGE_TILING_OPTIMAL, usage, engineState);
   _image->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, colorBits, 6, mipMapLevels,
                        commandBufferTransfer);
   int imageSize = std::get<0>(data->getResolution()) * std::get<1>(data->getResolution()) * data->getChannels();
@@ -55,8 +55,7 @@ Cubemap::Cubemap(std::tuple<int, int> resolution,
                  std::shared_ptr<EngineState> engineState) {
   _engineState = engineState;
   // usage VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-  _image = std::make_shared<Image>(resolution, 6, mipMapLevels, format, VK_IMAGE_TILING_OPTIMAL, usage,
-                                   VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, engineState);
+  _image = std::make_shared<Image>(resolution, 6, mipMapLevels, format, VK_IMAGE_TILING_OPTIMAL, usage, engineState);
   // VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
   _image->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, layout, colorBits, 6, mipMapLevels, commandBufferTransfer);
   _imageView = std::make_shared<ImageView>(_image, VK_IMAGE_VIEW_TYPE_CUBE, 0, 6, 0, mipMapLevels, colorBits,

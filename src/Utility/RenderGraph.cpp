@@ -124,6 +124,12 @@ std::map<std::vector<int>, std::vector<std::shared_ptr<Framebuffer>>> GraphPass:
 
 void GraphPass::setRenderPass(std::shared_ptr<RenderPass> renderPass) { _renderPass = renderPass; }
 
+void GraphPass::setRenderPassScenario(RenderPassScenario renderPassScenario) {
+  _renderPassScenario = renderPassScenario;
+}
+
+RenderPassScenario GraphPass::getRenderPassScenario() { return _renderPassScenario; }
+
 std::shared_ptr<RenderPass> GraphPass::getRenderPass() { return _renderPass; }
 
 std::vector<std::shared_ptr<CommandBuffer>> GraphPass::getCommandBuffers() { return _commandBuffers; }
@@ -184,7 +190,11 @@ void RenderGraph::print() {
     if (value->getStage() == GraphPassStage::GRAPHIC) {
       auto renderPass = value->getRenderPass();
       // for application stage is empty
-      if (renderPass) std::cout << "Render pass: " << renderPass << std::endl;
+      if (renderPass) {
+        std::cout << "Render pass: " << renderPass->getRenderPass()
+                  << ", color: " << renderPass->getColorAttachmentNumber()
+                  << ", depth: " << renderPass->getDepthAttachmentNumber() << std::endl;
+      }
       if (value->getFrameBuffers().empty() == false) {
         std::cout << "Framebuffers:" << std::endl;
         for (auto [indices, framebuffers] : value->getFrameBuffers()) {
@@ -377,151 +387,153 @@ void RenderGraph::calculate() {
 
     passStagePrevious = pass->getStage();
 
+    // calculate render pass and framebuffer
     if (pass->getStage() == GraphPassStage::GRAPHIC) {
-      std::vector<VkAttachmentDescription> colorDescriptions;
-      std::vector<VkAttachmentReference> colorReferences;
-      uint32_t index = 0;
-      for (auto& key : pass->getColorTargets()) {
-        VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        if (i > 0) {
-          auto passPrevious = _passesOrdered[i - 1];
-          for (auto keyPrevious : passPrevious->getColorTargets()) {
-            if (key == keyPrevious) {
-              loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-              break;
+      std::shared_ptr<RenderPass> renderPass = _engineState->getRenderPassManager()->getRenderPass(
+          pass->getRenderPassScenario());
+      if (renderPass == nullptr) {
+        std::vector<VkAttachmentDescription> colorDescriptions;
+        std::vector<VkAttachmentReference> colorReferences;
+        uint32_t index = 0;
+        for (auto& key : pass->getColorTargets()) {
+          VkAttachmentLoadOp loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+          if (i > 0) {
+            auto passPrevious = _passesOrdered[i - 1];
+            for (auto keyPrevious : passPrevious->getColorTargets()) {
+              if (key == keyPrevious) {
+                loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                break;
+              }
             }
           }
-        }
-        auto target = _graphStorage->getImageHolder(key);
-        VkImageLayout finalLayout = target->getImage()->getImageLayout();
-        if (pass->getEnd()) {
-          finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        }
-        VkAttachmentDescription colorDescription{.format = target->getImage()->getFormat(),
-                                                 .samples = VK_SAMPLE_COUNT_1_BIT,
-                                                 .loadOp = loadOp,
-                                                 .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-                                                 .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-                                                 .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                                                 .initialLayout = target->getImage()->getImageLayout(),
-                                                 .finalLayout = finalLayout};
-        colorDescriptions.push_back(colorDescription);
-        colorReferences.push_back(
-            VkAttachmentReference{.attachment = index, .layout = target->getImage()->getImageLayout()});
-        index++;
-      }
-      bool depth = false;
-      {
-        auto key = pass->getDepthTarget();
-        if (key) {
-          auto target = _graphStorage->getImage(key.value());
-          VkAttachmentDescription depthDescription{.format = target->getFormat(),
+          auto target = _graphStorage->getImageHolder(key);
+          VkImageLayout finalLayout = target->getImage()->getImageLayout();
+          if (pass->getEnd()) {
+            finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+          }
+          VkAttachmentDescription colorDescription{.format = target->getImage()->getFormat(),
                                                    .samples = VK_SAMPLE_COUNT_1_BIT,
-                                                   .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                   .loadOp = loadOp,
                                                    .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
                                                    .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                                                    .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-                                                   // comes from light baking to depth image
-                                                   .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                                                   // goes to GUI for visualization
-                                                   .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
-          colorDescriptions.push_back(depthDescription);
-          depth = true;
+                                                   .initialLayout = target->getImage()->getImageLayout(),
+                                                   .finalLayout = finalLayout};
+          colorDescriptions.push_back(colorDescription);
+          colorReferences.push_back(
+              VkAttachmentReference{.attachment = index, .layout = target->getImage()->getImageLayout()});
+          index++;
         }
-      }
+        bool depth = false;
+        {
+          auto key = pass->getDepthTarget();
+          if (key) {
+            auto target = _graphStorage->getImage(key.value());
+            VkAttachmentDescription depthDescription{.format = target->getFormat(),
+                                                     .samples = VK_SAMPLE_COUNT_1_BIT,
+                                                     .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                                     .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                                                     .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                                                     .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+                                                     // comes from light baking to depth image
+                                                     .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                                                     // goes to GUI for visualization
+                                                     .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
+            colorDescriptions.push_back(depthDescription);
+            depth = true;
+          }
+        }
 
-      auto renderPass = std::make_shared<RenderPass>(_engineState->getDevice());
-      if (depth) {
-        VkAttachmentReference depthReference{.attachment = (uint32_t)colorReferences.size(),
-                                             // we want read depth in shader
-                                             .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-        renderPass->initializeCustom(colorDescriptions, colorReferences, depthReference);
-      } else {
-        renderPass->initializeCustom(colorDescriptions, colorReferences, std::nullopt);
+        renderPass = std::make_shared<RenderPass>(_engineState->getDevice());
+        if (depth) {
+          VkAttachmentReference depthReference{.attachment = (uint32_t)colorReferences.size(),
+                                               // we want read depth in shader
+                                               .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+          renderPass->initializeCustom(colorDescriptions, colorReferences, depthReference);
+        } else {
+          renderPass->initializeCustom(colorDescriptions, colorReferences, std::nullopt);
+        }
+
+        _engineState->getRenderPassManager()->setRenderPass(pass->getRenderPassScenario(), renderPass);
       }
       pass->setRenderPass(renderPass);
+
+      _calculateFrameBuffers(pass);
     }
   }
-
-  _calculateFrameBuffers();
 }
 
-void RenderGraph::_calculateFrameBuffers() {
-  for (int i = 0; i < _passesOrdered.size(); i++) {
-    auto pass = _passesOrdered[i];
-    if (pass->getStage() == GraphPassStage::GRAPHIC) {
-      auto depth = pass->getDepthTarget();
-      // fill framebuffers
-      std::vector<int> attachments;
-      for (auto& key : pass->getColorTargets()) {
-        auto target = _graphStorage->getImageHolder(key);
-        attachments.push_back(target->getImages().size());
-      }
-
-      std::map<std::vector<int>, std::vector<std::shared_ptr<Framebuffer>>> frameBuffers;
-      std::vector<int> indices(attachments.size(), 0);
-      while (true) {
-        std::vector<std::shared_ptr<Image>> images(attachments.size());
-        int layersMax = 1;
-        for (int i = 0; i < attachments.size(); i++) {
-          auto target = _graphStorage->getImageHolder(pass->getColorTargets()[i]);
-          images[i] = target->getImages()[indices[i]];
-          layersMax = std::max(layersMax, images[i]->getLayersNumber());
-        }
-
-        if (depth) images.push_back(_graphStorage->getImage(depth.value()));
-
-        std::vector<std::vector<std::shared_ptr<ImageView>>> imageViews(
-            layersMax, std::vector<std::shared_ptr<ImageView>>(images.size()));
-        for (int l = 0; l < layersMax; l++) {
-          for (int i = 0; i < images.size(); i++) {
-            auto image = images[i];
-            auto aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            if (depth && image == _graphStorage->getImage(depth.value())) aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-
-            if (image->getLayersNumber() == 1) {
-              // baseArrayLayer - which face is used
-              // arrayLayerNumber - number of faces
-              // baseMipMapLevel - which mip map level is used
-              // mipMapLevels - number of visible mip maps for current image view
-              if (l > 0)
-                imageViews[l][i] = imageViews[l - 1][i];
-              else {
-                imageViews[l][i] = std::make_shared<ImageView>(image, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1, aspectMask,
-                                                               _engineState);
-              }
-            } else {
-              // always render to mip map level = 0
-              imageViews[l][i] = std::make_shared<ImageView>(image, VK_IMAGE_VIEW_TYPE_2D, l, 1, 0, 1, aspectMask,
-                                                             _engineState);
-            }
-          }
-        }
-
-        frameBuffers[indices].resize(layersMax);
-        for (int l = 0; l < layersMax; l++) {
-          auto target = _graphStorage->getImageHolder(pass->getColorTargets()[0]);
-          auto imageParameters = target->getImage()->getResolution();
-          frameBuffers[indices][l] = std::make_shared<Framebuffer>(imageViews[l], imageParameters,
-                                                                   pass->getRenderPass(), _engineState->getDevice());
-        }
-        int counter = static_cast<int>(attachments.size()) - 1;
-        while (counter >= 0) {
-          indices[counter]++;
-          if (indices[counter] < attachments[counter]) {
-            break;
-          } else {
-            indices[counter] = 0;
-            counter--;
-          }
-        }
-
-        if (counter < 0) break;
-      }
-
-      pass->setFrameBuffers(frameBuffers);
-    }
+void RenderGraph::_calculateFrameBuffers(std::shared_ptr<GraphPass> pass) {
+  auto depth = pass->getDepthTarget();
+  // fill framebuffers
+  std::vector<int> attachments;
+  for (auto& key : pass->getColorTargets()) {
+    auto target = _graphStorage->getImageHolder(key);
+    attachments.push_back(target->getImages().size());
   }
+
+  std::map<std::vector<int>, std::vector<std::shared_ptr<Framebuffer>>> frameBuffers;
+  std::vector<int> indices(attachments.size(), 0);
+  while (true) {
+    std::vector<std::shared_ptr<Image>> images(attachments.size());
+    int layersMax = 1;
+    for (int i = 0; i < attachments.size(); i++) {
+      auto target = _graphStorage->getImageHolder(pass->getColorTargets()[i]);
+      images[i] = target->getImages()[indices[i]];
+      layersMax = std::max(layersMax, images[i]->getLayersNumber());
+    }
+
+    if (depth) images.push_back(_graphStorage->getImage(depth.value()));
+
+    std::vector<std::vector<std::shared_ptr<ImageView>>> imageViews(
+        layersMax, std::vector<std::shared_ptr<ImageView>>(images.size()));
+    for (int l = 0; l < layersMax; l++) {
+      for (int i = 0; i < images.size(); i++) {
+        auto image = images[i];
+        auto aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        if (depth && image == _graphStorage->getImage(depth.value())) aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+        if (image->getLayersNumber() == 1) {
+          // baseArrayLayer - which face is used
+          // arrayLayerNumber - number of faces
+          // baseMipMapLevel - which mip map level is used
+          // mipMapLevels - number of visible mip maps for current image view
+          if (l > 0)
+            imageViews[l][i] = imageViews[l - 1][i];
+          else {
+            imageViews[l][i] = std::make_shared<ImageView>(image, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1, aspectMask,
+                                                           _engineState);
+          }
+        } else {
+          // always render to mip map level = 0
+          imageViews[l][i] = std::make_shared<ImageView>(image, VK_IMAGE_VIEW_TYPE_2D, l, 1, 0, 1, aspectMask,
+                                                         _engineState);
+        }
+      }
+    }
+
+    frameBuffers[indices].resize(layersMax);
+    for (int l = 0; l < layersMax; l++) {
+      auto target = _graphStorage->getImageHolder(pass->getColorTargets()[0]);
+      auto imageParameters = target->getImage()->getResolution();
+      frameBuffers[indices][l] = std::make_shared<Framebuffer>(imageViews[l], imageParameters, pass->getRenderPass(),
+                                                               _engineState->getDevice());
+    }
+    int counter = static_cast<int>(attachments.size()) - 1;
+    while (counter >= 0) {
+      indices[counter]++;
+      if (indices[counter] < attachments[counter]) {
+        break;
+      } else {
+        indices[counter] = 0;
+        counter--;
+      }
+    }
+
+    if (counter < 0) break;
+  }
+
+  pass->setFrameBuffers(frameBuffers);
 }
 
 void RenderGraph::render() {
@@ -643,7 +655,7 @@ void RenderGraph::render() {
               std::vector<VkBufferMemoryBarrier> bufferBarriers;
               for (auto& key : graphPass->getStorageInputs()) {
                 bufferBarriers.push_back(
-                    VkBufferMemoryBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                    VkBufferMemoryBarrier{.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
                                           .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
                                           .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
                                           .buffer = _graphStorage->getBuffer(key)[frameInFlight]->getData(),
@@ -699,21 +711,40 @@ void RenderGraph::render() {
                   _fenceInFlight[frameInFlight]->getFence());
 }
 
-void RenderGraph::reset() {
+void RenderGraph::reset(std::shared_ptr<CommandBuffer> commandBuffer) {
   std::vector<std::shared_ptr<Image>> images;
   for (auto& imageView : _swapchain->getImageViews()) images.push_back(imageView->getImage());
   auto swapchainHolder = std::make_shared<ImageHolderSwapchain>(images, _swapchain);
   for (auto& pass : _passesOrdered) {
+    bool changed = false;
     // change only images themselfs, no need to change names
     for (auto key : pass->getColorTargets()) {
-      _graphStorage->add(key, swapchainHolder);
+      if (std::dynamic_pointer_cast<ImageHolderSwapchain>(_graphStorage->getImageHolder(key))) {
+        _graphStorage->add(key, swapchainHolder);
+        changed = true;
+      }
     }
-    for (auto key : pass->getTextureInputs()) {
-      _graphStorage->add(key, swapchainHolder);
+
+    if (changed && pass->getStage() == GraphPassStage::GRAPHIC) {
+      //// recalculate rest of the attachments because the size of images should be the same as framebuffer
+      // for (auto key : pass->getTextureInputs()) {
+      //   if (std::dynamic_pointer_cast<ImageHolderFlight>(_graphStorage->getImageHolder(key))) {
+      //     std::vector<std::shared_ptr<Image>> imagesReset;
+      //     for (auto& image : _graphStorage->getImageHolder(key)->getImages()) {
+      //       auto imageReset = std::make_shared<Image>(
+      //           swapchainHolder->getImage()->getResolution(), image->getLayersNumber(), image->getMipMapLevels(),
+      //           image->getFormat(), image->getTiling(), image->getUsage(), _engineState);
+      //       imageReset->generateMipmaps(image->getMipMapLevels(), image->getLayersNumber(), commandBuffer);
+      //       imagesReset.push_back(imageReset);
+      //     }
+      //     auto imageHolder = std::make_shared<ImageHolderSwapchain>(imagesReset, _swapchain);
+      //     _graphStorage->add(key, imageHolder);
+      //   }
+      // }
+
+      _calculateFrameBuffers(pass);
     }
   }
-
-  _calculateFrameBuffers();
 }
 
 ImageHolder::ImageHolder(std::vector<std::shared_ptr<Image>> images) { _images = images; }

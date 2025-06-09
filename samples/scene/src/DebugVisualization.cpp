@@ -302,13 +302,6 @@ void DebugVisualization::draw() {
     if (_gui->drawInputFloat({{"gamma", &gamma}})) _core->getPostprocessing()->setGamma(gamma);
     float exposure = _core->getPostprocessing()->getExposure();
     if (_gui->drawInputFloat({{"exposure", &exposure}})) _core->getPostprocessing()->setExposure(exposure);
-    int blurKernelSize = _core->getBloomBlur()->getKernelSize();
-    if (_gui->drawInputInt({{"Kernel", &blurKernelSize}})) _core->getBloomBlur()->setKernelSize(blurKernelSize);
-    int blurSigma = _core->getBloomBlur()->getSigma();
-    if (_gui->drawInputInt({{"Sigma", &blurSigma}})) _core->getBloomBlur()->setSigma(blurSigma);
-    int bloomPasses = _core->getEngineState()->getSettings()->getBloomPasses();
-    if (_gui->drawInputInt({{"Passes", &bloomPasses}}))
-      _core->getEngineState()->getSettings()->setBloomPasses(bloomPasses);
 
     _gui->drawInputFloat({{"R", &_R}});
     _R = std::min(_R, 1.f);

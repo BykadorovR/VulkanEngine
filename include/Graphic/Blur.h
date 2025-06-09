@@ -53,7 +53,6 @@ class BlurComputeSeparate : public BlurSeparate {
 class BlurGraphicSeparate : public BlurSeparate {
  private:
   std::shared_ptr<PipelineGraphic> _pipeline;
-  std::shared_ptr<RenderPass> _renderPass;
   std::shared_ptr<MeshStatic2D> _mesh;
   std::tuple<int, int> _resolution;
 

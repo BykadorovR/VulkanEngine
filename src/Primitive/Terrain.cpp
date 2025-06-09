@@ -251,8 +251,6 @@ void TerrainCPU::_loadTriangles(int currentFrame) {
 }
 
 void TerrainCPU::_loadTerrain() {
-  _renderPass = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::GRAPHIC);
-
   _cameraBuffer.resize(_engineState->getSettings()->getMaxFramesInFlight());
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++)
     _cameraBuffer[i] = std::make_shared<Buffer>(
@@ -282,28 +280,25 @@ void TerrainCPU::_loadTerrain() {
       auto shader = std::make_shared<Shader>(_engineState);
       shader->add("shaders/terrain/terrainCPU_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
       shader->add("shaders/terrain/terrainCPU_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipeline = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(), _engineState->getDevice());
       _pipeline->setDepthTest(true);
       _pipeline->setDepthWrite(true);
       _pipeline->setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP);
       _pipeline->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout, {}, _mesh[0]->getBindingDescription(),
+          shader, _descriptorSetLayout, {}, _mesh[0]->getBindingDescription(),
           _mesh[0]->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}}),
-          _renderPass);
+          RenderPassScenario::GRAPHIC);
 
-      _pipelineWireframe = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineWireframe = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                             _engineState->getDevice());
       _pipelineWireframe->setDepthTest(true);
       _pipelineWireframe->setDepthWrite(true);
       _pipelineWireframe->setPolygonMode(VK_POLYGON_MODE_LINE);
       _pipelineWireframe->setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP);
       _pipelineWireframe->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout, {}, _mesh[0]->getBindingDescription(),
+          shader, _descriptorSetLayout, {}, _mesh[0]->getBindingDescription(),
           _mesh[0]->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}}),
-          _renderPass);
+          RenderPassScenario::GRAPHIC);
     }
   }
 }

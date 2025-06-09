@@ -16,7 +16,6 @@ class Line : public Drawable {
   std::vector<std::shared_ptr<Buffer>> _cameraBuffer;
   std::vector<std::shared_ptr<DescriptorSet>> _descriptorSetCamera;
   std::shared_ptr<PipelineGraphic> _pipeline;
-  std::shared_ptr<RenderPass> _renderPass;
   glm::mat4 _model = glm::mat4(1.f);
   bool _changed = false;
 

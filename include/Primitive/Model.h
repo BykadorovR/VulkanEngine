@@ -77,7 +77,6 @@ class Model3D : public Drawable, public Shadowable {
   std::shared_ptr<DescriptorSetLayout> _descriptorSetLayoutNormalsMesh;
   std::shared_ptr<DescriptorSetLayout> _descriptorSetLayoutColor, _descriptorSetLayoutPhong, _descriptorSetLayoutPBR;
   std::map<MaterialType, std::shared_ptr<PipelineGraphic>> _pipeline, _pipelineCullOff, _pipelineWireframe;
-  std::shared_ptr<RenderPass> _renderPass, _renderPassDepth;
   std::shared_ptr<PipelineGraphic> _pipelineNormalMesh, _pipelineNormalMeshCullOff, _pipelineTangentMesh,
       _pipelineTangentMeshCullOff, _pipelineDirectional, _pipelinePoint;
 

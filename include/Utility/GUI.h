@@ -17,7 +17,6 @@ class GUI : public InputSubscriberExclusive {
   std::shared_ptr<EngineState> _engineState;
   std::shared_ptr<Image> _fontImage;
   std::shared_ptr<PipelineGraphic> _pipeline;
-  std::shared_ptr<RenderPass> _renderPass;
   std::vector<std::shared_ptr<Buffer>> _vertexBuffer;
   std::vector<std::shared_ptr<Buffer>> _indexBuffer;
   int _lastBuffer = 0;

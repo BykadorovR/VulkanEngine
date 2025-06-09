@@ -1,25 +1,18 @@
 #version 450
 
 layout (local_size_x = 16, local_size_y = 16) in;
-layout (set = 0, binding = 0, rgba8) uniform readonly mediump image2D inputImage;
-layout (set = 0, binding = 1, rgba8) uniform readonly mediump image2D blurImage;
-layout (set = 0, binding = 2, rgba8) uniform writeonly mediump image2D resultImage;
+layout (set = 0, binding = 0, rgba8) uniform mediump image2D inputImage;
 
 layout( push_constant ) uniform constants {
     float gamma;
     float exposure;
-    int enableBloom;
 } push;
 
 void main() {   
     vec4 color = imageLoad(inputImage, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y));
-    if (push.enableBloom > 0) {
-        vec4 colorBlur = imageLoad(blurImage, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y));
-        color.rgb += colorBlur.rgb;
-    }
     // exposure tone mapping
     vec3 corrected = vec3(1.0) - exp(-color.rgb * push.exposure);
     // gamma correction
     color = vec4(pow(corrected, vec3(1 / push.gamma)), color.a);
-    imageStore(resultImage, ivec2(gl_GlobalInvocationID.xy), color);
+    imageStore(inputImage, ivec2(gl_GlobalInvocationID.xy), color);
 }

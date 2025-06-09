@@ -62,7 +62,6 @@ class TerrainCPU : public Drawable {
   std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> _descriptorSetLayout;
   std::vector<std::shared_ptr<DescriptorSet>> _descriptorSetColor;
   std::shared_ptr<PipelineGraphic> _pipeline, _pipelineWireframe;
-  std::shared_ptr<RenderPass> _renderPass;
   float _heightScale = 64.f;
   float _heightShift = 16.f;
   bool _enableEdge = false;
@@ -211,4 +210,5 @@ class TerrainGPU : public Drawable, public Shadowable {
 
   void draw(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
   void drawShadow(LightType lightType, int lightIndex, int face, std::shared_ptr<CommandBuffer> commandBuffer) = 0;
+  virtual ~TerrainGPU() = default;
 };

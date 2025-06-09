@@ -789,10 +789,9 @@ std::shared_ptr<PointLight> LightManager::createPointLight() {
 }
 
 std::shared_ptr<PointShadow> LightManager::createPointShadow(std::shared_ptr<PointLight> pointLight,
-                                                             std::shared_ptr<RenderPass> renderPass,
                                                              std::shared_ptr<CommandBuffer> commandBufferTransfer) {
   std::unique_lock<std::mutex> accessLock(_accessMutex);
-  auto shadow = std::make_shared<PointShadow>(commandBufferTransfer, renderPass, _engineState);
+  auto shadow = std::make_shared<PointShadow>(commandBufferTransfer, _engineState);
   int indexLight = std::distance(_pointLights.begin(), find(_pointLights.begin(), _pointLights.end(), pointLight));
   _pointShadows[indexLight] = shadow;
 
@@ -841,10 +840,9 @@ std::shared_ptr<DirectionalLight> LightManager::createDirectionalLight() {
 
 std::shared_ptr<DirectionalShadow> LightManager::createDirectionalShadow(
     std::shared_ptr<DirectionalLight> directionalLight,
-    std::shared_ptr<RenderPass> renderPass,
     std::shared_ptr<CommandBuffer> commandBufferTransfer) {
   std::unique_lock<std::mutex> accessLock(_accessMutex);
-  auto shadow = std::make_shared<DirectionalShadow>(commandBufferTransfer, renderPass, _engineState);
+  auto shadow = std::make_shared<DirectionalShadow>(commandBufferTransfer, _engineState);
   int indexLight = std::distance(_directionalLights.begin(),
                                  find(_directionalLights.begin(), _directionalLights.end(), directionalLight));
   _directionalShadows[indexLight] = shadow;

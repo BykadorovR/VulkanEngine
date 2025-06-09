@@ -36,8 +36,6 @@ void Settings::setPoolSize(int poolSizeDescriptorSets,
   _poolSizeDescriptorSets = poolSizeDescriptorSets;
 }
 
-void Settings::setBloomPasses(int number) { _bloomPasses = number; }
-
 void Settings::setClearColor(VkClearColorValue clearColor) { _clearColor = clearColor; }
 
 void Settings::setThreadsInPool(int threadsInPool) { _threadsInPool = threadsInPool; }
@@ -67,8 +65,6 @@ VkFormat Settings::getLoadTextureAuxilaryFormat() { return _loadTextureAuxilaryF
 VkFormat Settings::getDepthFormat() { return _depthFormat; }
 
 VkFormat Settings::getShadowMapFormat() { return _shadowMapFormat; }
-
-int Settings::getBloomPasses() { return _bloomPasses; }
 
 int Settings::getMaxDirectionalLights() { return _maxDirectionalLights; }
 

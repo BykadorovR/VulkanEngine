@@ -46,7 +46,25 @@ IBL::IBL(std::shared_ptr<CommandBuffer> commandBufferTransfer,
   _material = std::make_shared<MaterialColor>(MaterialTarget::SIMPLE, commandBufferTransfer, engineState);
   std::dynamic_pointer_cast<MaterialColor>(_material)->setBaseColor(
       {_gameState->getResourceManager()->getCubemapOne()->getTexture()});
-  _renderPass = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::IBL);
+
+  {
+    std::vector<VkAttachmentDescription> colorDescription{
+        {.format = _engineState->getSettings()->getGraphicColorFormat(),
+         .samples = VK_SAMPLE_COUNT_1_BIT,
+         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+         .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+         .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+         // comes from previous stage/initialization
+         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+         // goes to render shader as input
+         .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+
+    // we want write to this attachments
+    VkAttachmentReference colorReference{.attachment = 0, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    _renderPass = std::make_shared<RenderPass>(_engineState->getDevice());
+    _renderPass->initializeCustom(colorDescription, {colorReference}, std::nullopt);
+  }
 
   // setup BRDF
   {
@@ -78,13 +96,12 @@ IBL::IBL(std::shared_ptr<CommandBuffer> commandBufferTransfer,
       auto shader = std::make_shared<Shader>(engineState);
       shader->add("shaders/IBL/specularBRDF_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
       shader->add("shaders/IBL/specularBRDF_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      _pipelineSpecularBRDF = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineSpecularBRDF = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                                _engineState->getDevice());
       _pipelineSpecularBRDF->setDepthTest(true);
       _pipelineSpecularBRDF->setDepthWrite(true);
       _pipelineSpecularBRDF->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          {{"brdf", cameraLayout}}, {}, _mesh2D->getBindingDescription(),
+          shader, {{"brdf", cameraLayout}}, {}, _mesh2D->getBindingDescription(),
           _mesh2D->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
                                                      {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
           _renderPass);
@@ -132,13 +149,12 @@ IBL::IBL(std::shared_ptr<CommandBuffer> commandBufferTransfer,
       auto shader = std::make_shared<Shader>(engineState);
       shader->add("shaders/IBL/skyboxDiffuse_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
       shader->add("shaders/IBL/skyboxDiffuse_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      _pipelineDiffuse = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineDiffuse = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                           _engineState->getDevice());
       _pipelineDiffuse->setDepthTest(true);
       _pipelineDiffuse->setDepthWrite(true);
       _pipelineDiffuse->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          {std::pair{std::string("color"), _descriptorSetLayoutColor}}, {}, _mesh3D->getBindingDescription(),
+          shader, {std::pair{std::string("color"), _descriptorSetLayoutColor}}, {}, _mesh3D->getBindingDescription(),
           _mesh3D->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}}),
           _renderPass);
     }
@@ -150,13 +166,12 @@ IBL::IBL(std::shared_ptr<CommandBuffer> commandBufferTransfer,
       auto shader = std::make_shared<Shader>(engineState);
       shader->add("shaders/IBL/skyboxSpecular_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
       shader->add("shaders/IBL/skyboxSpecular_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      _pipelineSpecular = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineSpecular = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                            _engineState->getDevice());
       _pipelineSpecular->setDepthTest(true);
       _pipelineSpecular->setDepthWrite(true);
       _pipelineSpecular->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          {std::pair{std::string("color"), _descriptorSetLayoutColor}}, defaultPushConstants,
+          shader, {std::pair{std::string("color"), _descriptorSetLayoutColor}}, defaultPushConstants,
           _mesh3D->getBindingDescription(),
           _mesh3D->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}}),
           _renderPass);
@@ -175,8 +190,7 @@ IBL::IBL(std::shared_ptr<CommandBuffer> commandBufferTransfer,
       commandBufferTransfer, engineState);
   auto brdfImage = std::make_shared<Image>(
       _engineState->getSettings()->getShadowMapResolution(), 1, 1, _engineState->getSettings()->getGraphicColorFormat(),
-      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, engineState);
+      VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, engineState);
   brdfImage->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                           VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, commandBufferTransfer);
   auto brdfImageView = std::make_shared<ImageView>(brdfImage, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1,

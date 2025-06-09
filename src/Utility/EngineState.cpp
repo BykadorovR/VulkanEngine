@@ -21,7 +21,7 @@ void EngineState::initialize() {
   _memoryAllocator = std::make_shared<MemoryAllocator>(_device, _instance);
   _descriptorPool = std::make_shared<DescriptorPool>(_settings, _device);
   _filesystem = std::make_shared<Filesystem>();
-  _renderPassManager = std::make_shared<RenderPassManager>(_settings, _device);
+  _renderPassManager = std::make_shared<RenderPassManager>();
   _logger = std::make_shared<Logger>(_device);
   _debugUtils = std::make_shared<DebugUtils>(_device);
 #ifdef __ANDROID__

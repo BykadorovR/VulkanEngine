@@ -21,9 +21,9 @@ Equirectangular::Equirectangular(std::shared_ptr<ImageCPU<float>> imageCPU,
   // image
   auto [width, height] = engineState->getSettings()->getResolution();
   // HDR image is in VK_FORMAT_R32G32B32A32_SFLOAT
-  _image = std::make_shared<Image>(
-      std::tuple{texWidth, texHeight}, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, engineState);
+  _image = std::make_shared<Image>(std::tuple{texWidth, texHeight}, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT,
+                                   VK_IMAGE_TILING_OPTIMAL,
+                                   VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, engineState);
   _image->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1,
                        commandBufferTransfer);
   _image->copyFrom(_stagingBuffer, {0}, commandBufferTransfer);
@@ -67,7 +67,24 @@ Equirectangular::Equirectangular(std::shared_ptr<ImageCPU<float>> imageCPU,
   _mesh3D->setColor(std::vector<glm::vec3>(vertices.size(), glm::vec3(1.f, 1.f, 1.f)), commandBufferTransfer);
   _material = std::make_shared<MaterialColor>(MaterialTarget::SIMPLE, commandBufferTransfer, engineState);
   _material->setBaseColor({_texture});
-  _renderPass = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::IBL);
+  {
+    std::vector<VkAttachmentDescription> colorDescription{
+        {.format = _engineState->getSettings()->getGraphicColorFormat(),
+         .samples = VK_SAMPLE_COUNT_1_BIT,
+         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+         .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+         .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+         // comes from previous stage/initialization
+         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+         // goes to render shader as input
+         .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
+
+    // we want write to this attachments
+    VkAttachmentReference colorReference{.attachment = 0, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    _renderPass = std::make_shared<RenderPass>(_engineState->getDevice());
+    _renderPass->initializeCustom(colorDescription, {colorReference}, std::nullopt);
+  }
 
   // initialize camera UBO and descriptor sets for draw
   // initialize UBO
@@ -119,13 +136,12 @@ Equirectangular::Equirectangular(std::shared_ptr<ImageCPU<float>> imageCPU,
       auto shader = std::make_shared<Shader>(engineState);
       shader->add("shaders/IBL/skyboxEquirectangular_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
       shader->add("shaders/IBL/skyboxEquirectangular_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      _pipelineEquirectangular = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+      _pipelineEquirectangular = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
+                                                                   _engineState->getDevice());
       _pipelineEquirectangular->setDepthTest(true);
       _pipelineEquirectangular->setDepthWrite(true);
       _pipelineEquirectangular->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          {std::pair{std::string("color"), _descriptorSetLayout}}, {}, _mesh3D->getBindingDescription(),
+          shader, {std::pair{std::string("color"), _descriptorSetLayout}}, {}, _mesh3D->getBindingDescription(),
           _mesh3D->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}}),
           _renderPass);
     }

@@ -38,12 +38,9 @@ class Core {
   std::shared_ptr<GameState> _gameState;
   std::shared_ptr<Swapchain> _swapchain;
   std::shared_ptr<ImageView> _depthAttachmentImageView;
-  // for compute render pass isn't needed
-  std::shared_ptr<RenderPass> _renderPassShadowMap, _renderPassGraphic, _renderPassDebug, _renderPassBlur;
   std::shared_ptr<CommandPool> _commandPoolApplication;
   std::vector<std::shared_ptr<CommandBuffer>> _commandBufferApplication;
 
-  std::vector<std::shared_ptr<Texture>> _textureBlurIn, _textureBlurOut;
   std::set<std::shared_ptr<Material>> _materials;
   std::shared_ptr<GUI> _gui;
 
@@ -68,8 +65,6 @@ class Core {
       std::shared_ptr<PointShadow>,
       std::vector<std::pair<std::vector<std::shared_ptr<BlurSeparate>>, std::vector<std::shared_ptr<BlurSeparate>>>>>
       _blurSeparateGraphicPoint;
-
-  std::vector<std::pair<std::shared_ptr<BlurSeparate>, std::shared_ptr<BlurSeparate>>> _blurBloom;
   std::map<std::shared_ptr<PointShadow>,
            std::vector<std::pair<std::vector<std::shared_ptr<Texture>>, std::vector<std::shared_ptr<Texture>>>>>
       _blurSeparateGraphicPointTextures;
@@ -97,7 +92,6 @@ class Core {
                                         std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                                         std::shared_ptr<CommandBuffer> commandBuffer);
 
-  void _computeBloom(std::shared_ptr<BlurSeparate> blur, std::shared_ptr<CommandBuffer> commandBuffer);
   void _computePostprocessing(std::shared_ptr<CommandBuffer> commandBuffer);
   void _debugVisualizations(std::vector<std::shared_ptr<Framebuffer>> framebuffers,
                             std::shared_ptr<CommandBuffer> commandBuffer);
@@ -143,7 +137,6 @@ class Core {
                                          VkCullModeFlagBits cullMode = VK_CULL_MODE_BACK_BIT);
   std::shared_ptr<Model3D> createModel3D(std::shared_ptr<ModelGLTF> modelGLTF);
   std::shared_ptr<Sprite> createSprite();
-  std::shared_ptr<TerrainGPU> createTerrainInterpolation(std::shared_ptr<ImageCPU<uint8_t>> heightmap);
   std::shared_ptr<TerrainGPU> createTerrainComposition(std::shared_ptr<ImageCPU<uint8_t>> heightmap);
   std::shared_ptr<TerrainCPU> createTerrainCPU(std::vector<float> heights, std::tuple<int, int> resolution);
   std::shared_ptr<TerrainCPU> createTerrainCPU(std::shared_ptr<ImageCPU<uint8_t>> heightmap);
@@ -160,7 +153,6 @@ class Core {
                                                              bool blur = true);
   std::shared_ptr<PhysicsManager> createPhysicsManager();
   std::shared_ptr<GUI> createGUI();
-  void createBloomBlur();
   std::shared_ptr<Postprocessing> createPostprocessing();
 
   std::shared_ptr<CommandBuffer> getCommandBufferApplication();

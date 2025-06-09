@@ -13,6 +13,7 @@ class Shader {
   Shader(std::shared_ptr<EngineState> device);
   void add(std::string path, VkShaderStageFlagBits type);
   void setSpecializationInfo(VkSpecializationInfo info, VkShaderStageFlagBits type);
-  VkPipelineShaderStageCreateInfo& getShaderStageInfo(VkShaderStageFlagBits type);
+  std::vector<VkPipelineShaderStageCreateInfo> getShaderStageInfos();
+  VkPipelineShaderStageCreateInfo getShaderStageInfo(VkShaderStageFlagBits type);
   ~Shader();
 };

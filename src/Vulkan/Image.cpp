@@ -18,15 +18,17 @@ Image::Image(std::tuple<int, int> resolution,
              VkFormat format,
              VkImageTiling tiling,
              VkImageUsageFlags usage,
-             VkMemoryPropertyFlags properties,
              std::shared_ptr<EngineState> engineState) {
   _engineState = engineState;
   _resolution = resolution;
+  _layers = layers;
+  _mipMapLevels = mipMapLevels;
   _format = format;
   _layers = layers;
+  _usage = usage;
 
   _imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  VkImageCreateInfo imageInfo{
+  auto imageInfo = VkImageCreateInfo{
       .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
       .imageType = VK_IMAGE_TYPE_2D,
       .format = format,
@@ -50,8 +52,13 @@ Image::Image(std::tuple<int, int> resolution,
   vmaCreateImage(_engineState->getMemoryAllocator()->getAllocator(), &imageInfo, &allocCreateInfo, &_image,
                  &_imageMemory, nullptr);
 }
-
 int Image::getLayersNumber() { return _layers; }
+
+int Image::getMipMapLevels() { return _mipMapLevels; }
+
+VkImageTiling Image::getTiling() { return _tiling; }
+
+VkImageUsageFlags Image::getUsage() { return _usage; }
 
 VkFormat& Image::getFormat() { return _format; }
 

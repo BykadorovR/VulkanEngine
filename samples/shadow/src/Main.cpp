@@ -196,7 +196,7 @@ Main::Main() {
                                            settings->getLoadTextureColorFormat(), mipMapLevels);
     auto tile3Color = _core->createTexture("../../terrain/assets/ground/albedo.png",
                                            settings->getLoadTextureColorFormat(), mipMapLevels);
-    auto terrainPhong = _core->createTerrainInterpolation(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
+    auto terrainPhong = _core->createTerrainComposition(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
     terrainPhong->setPatchNumber(12, 12);
     terrainPhong->initialize(_core->getCommandBufferApplication());
     auto materialTerrainPhong = _core->createMaterialPhong(MaterialTarget::TERRAIN);
@@ -271,7 +271,7 @@ Main::Main() {
     auto tile3AO = _core->createTexture("../../terrain/assets/ground/ao.png", settings->getLoadTextureAuxilaryFormat(),
                                         mipMapLevels);
 
-    auto terrainPBR = _core->createTerrainInterpolation(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
+    auto terrainPBR = _core->createTerrainComposition(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
     terrainPBR->setPatchNumber(12, 12);
     terrainPBR->initialize(_core->getCommandBufferApplication());
     auto materialPBR = _core->createMaterialPBR(MaterialTarget::TERRAIN);

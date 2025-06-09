@@ -102,8 +102,7 @@ BlurComputeSeparate::BlurComputeSeparate(bool horizontal,
   _initialize(src, dst);
 
   _pipeline = std::make_shared<PipelineCompute>(_engineState->getDevice());
-  _pipeline->createCustom(shader->getShaderStageInfo(VK_SHADER_STAGE_COMPUTE_BIT),
-                          {std::pair{std::string("descriptor"), _descriptorSetLayout}}, {});
+  _pipeline->createCustom(shader, {std::pair{std::string("descriptor"), _descriptorSetLayout}}, {});
 }
 
 void BlurComputeSeparate::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
@@ -167,8 +166,6 @@ BlurGraphicSeparate::BlurGraphicSeparate(bool horizontal,
                      commandBufferTransfer);
   _mesh->setIndexes({0, 3, 2, 2, 1, 0}, commandBufferTransfer);
 
-  _renderPass = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::BLUR);
-
   _updateWeights();
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
     _updateDescriptors(i);
@@ -191,16 +188,14 @@ BlurGraphicSeparate::BlurGraphicSeparate(bool horizontal,
 
   _initialize(src);
 
-  _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
+  _pipeline = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(), _engineState->getDevice());
   _pipeline->setDepthTest(true);
   _pipeline->setDepthWrite(true);
   _pipeline->createCustom(
-      {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-       shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-      {std::pair{std::string("blur"), _descriptorSetLayout}}, {}, _mesh->getBindingDescription(),
+      shader, {std::pair{std::string("blur"), _descriptorSetLayout}}, {}, _mesh->getBindingDescription(),
       _mesh->Mesh2D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
                                                {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}}),
-      _renderPass);
+      RenderPassScenario::BLUR);
 }
 
 void BlurGraphicSeparate::_initialize(std::vector<std::shared_ptr<Texture>> src) {

@@ -10,8 +10,8 @@ class Pipeline {
   std::shared_ptr<Device> _device;
   std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> _descriptorSetLayout;
   std::map<std::string, VkPushConstantRange> _pushConstants;
-  VkPipeline _pipeline;
-  VkPipelineLayout _pipelineLayout;
+  VkPipeline _pipeline = VK_NULL_HANDLE;
+  VkPipelineLayout _pipelineLayout = VK_NULL_HANDLE;
 
  public:
   Pipeline(std::shared_ptr<Device> device);
@@ -34,9 +34,26 @@ class PipelineGraphic : public Pipeline {
   VkPipelineColorBlendStateCreateInfo _colorBlending;
   VkPipelineDepthStencilStateCreateInfo _depthStencil;
   std::optional<VkPipelineTessellationStateCreateInfo> _tessellationState;
+  std::shared_ptr<RenderPassManager> _renderPassManager;
+  VkVertexInputBindingDescription _bindingDescription;
+  std::vector<VkVertexInputAttributeDescription> _attributeDescriptions;
+  std::shared_ptr<Shader> _shader;
+
+  VkGraphicsPipelineCreateInfo _pipelineInfoDynamic;
+  void _createPipelineLayout(
+      std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
+      std::map<std::string, VkPushConstantRange> pushConstants);
+  void _createCustomStatic(
+      std::shared_ptr<Shader> shader,
+      std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
+      std::map<std::string, VkPushConstantRange> pushConstants,
+      VkVertexInputBindingDescription bindingDescription,
+      std::vector<VkVertexInputAttributeDescription> attributeDescriptions,
+      std::shared_ptr<RenderPass> renderPass);
+  void _notifyDynamic(std::shared_ptr<RenderPass> renderPass);
 
  public:
-  PipelineGraphic(std::shared_ptr<Device> device);
+  PipelineGraphic(std::shared_ptr<RenderPassManager> renderPassManager, std::shared_ptr<Device> device);
   void setCullMode(VkCullModeFlags cullMode);
   void setPolygonMode(VkPolygonMode polygonMode);
   void setAlphaBlending(bool alphaBlending);
@@ -47,7 +64,13 @@ class PipelineGraphic : public Pipeline {
   void setDepthCompateOp(VkCompareOp depthCompareOp);
   void setColorBlendOp(VkBlendOp colorBlendOp);
   void setTesselation(int patchControlPoints);
-  void createCustom(std::vector<VkPipelineShaderStageCreateInfo> shaderStages,
+  void createCustom(std::shared_ptr<Shader> shader,
+                    std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
+                    std::map<std::string, VkPushConstantRange> pushConstants,
+                    VkVertexInputBindingDescription bindingDescription,
+                    std::vector<VkVertexInputAttributeDescription> attributeDescriptions,
+                    RenderPassScenario renderPassScenario);
+  void createCustom(std::shared_ptr<Shader> shader,
                     std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
                     std::map<std::string, VkPushConstantRange> pushConstants,
                     VkVertexInputBindingDescription bindingDescription,
@@ -58,7 +81,7 @@ class PipelineGraphic : public Pipeline {
 class PipelineCompute : public Pipeline {
  public:
   PipelineCompute(std::shared_ptr<Device> device);
-  void createCustom(VkPipelineShaderStageCreateInfo shaderStage,
+  void createCustom(std::shared_ptr<Shader> shader,
                     std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> descriptorSetLayout,
                     std::map<std::string, VkPushConstantRange> pushConstants);
 };

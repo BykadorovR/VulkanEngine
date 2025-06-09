@@ -4,6 +4,7 @@
 #include <vector>
 #include <memory>
 #include <deque>
+#include "Vulkan/Pipeline.h"
 #include "Vulkan/Image.h"
 #include "Vulkan/Swapchain.h"
 #include "Vulkan/Sync.h"
@@ -67,6 +68,7 @@ class GraphPass {
   std::optional<std::string> _depthTarget;
   std::shared_ptr<CommandPool> _commandPool;
   std::vector<std::shared_ptr<CommandBuffer>> _commandBuffers;
+  RenderPassScenario _renderPassScenario;
   std::shared_ptr<RenderPass> _renderPass;
   std::map<std::vector<int>, std::vector<std::shared_ptr<Framebuffer>>> _frameBuffers;
   std::vector<std::vector<std::shared_ptr<Semaphore>>> _signalSemaphores, _waitSemaphores;
@@ -103,6 +105,7 @@ class GraphPass {
 
   void setCommandBuffers(std::vector<std::shared_ptr<CommandBuffer>> commandBuffers);
   void setRenderPass(std::shared_ptr<RenderPass> renderPass);
+  void setRenderPassScenario(RenderPassScenario renderPassScenario);
   std::shared_ptr<RenderPass> getRenderPass();
   void setFrameBuffers(std::map<std::vector<int>, std::vector<std::shared_ptr<Framebuffer>>> frameBuffers);
   std::map<std::vector<int>, std::vector<std::shared_ptr<Framebuffer>>> getFrameBuffers();
@@ -115,6 +118,7 @@ class GraphPass {
   std::vector<std::string> getStorageOutputs();
   std::vector<std::string> getVertexBufferInputs();
   std::vector<std::string> getTextureInputs();
+  RenderPassScenario getRenderPassScenario();
   bool getEnd();
   std::string getName();
   // set function that does render pass work
@@ -137,7 +141,7 @@ class RenderGraph {
   std::vector<std::shared_ptr<Semaphore>> _semaphoreRenderFinished, _semaphoreImageAvailable;
   std::vector<std::shared_ptr<Fence>> _fenceInFlight;
 
-  void _calculateFrameBuffers();
+  void _calculateFrameBuffers(std::shared_ptr<GraphPass> pass);
 
  public:
   RenderGraph(std::shared_ptr<Swapchain> swapchain,
@@ -152,5 +156,5 @@ class RenderGraph {
   void calculate();
   void print();
   void render();
-  void reset();
+  void reset(std::shared_ptr<CommandBuffer> commandBuffer);
 };

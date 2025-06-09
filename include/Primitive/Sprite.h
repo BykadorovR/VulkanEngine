@@ -27,9 +27,10 @@ class Sprite : public Drawable, public Shadowable {
   std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> _descriptorSetLayoutBRDF;
   std::map<MaterialType, std::shared_ptr<PipelineGraphic>> _pipeline;
   std::map<MaterialType, std::shared_ptr<PipelineGraphic>> _pipelineWireframe;
-  std::shared_ptr<RenderPass> _renderPass, _renderPassDepth;
   std::shared_ptr<PipelineGraphic> _pipelineNormal, _pipelineTangent;
   std::shared_ptr<PipelineGraphic> _pipelineDirectional, _pipelinePoint;
+  std::shared_ptr<Shader> _shaderNormal, _shaderTangent, _shaderDirectional, _shaderPoint;
+  std::map<MaterialType, std::shared_ptr<Shader>> _shader;
 
   bool _enableShadow = true;
   bool _enableLighting = true;
