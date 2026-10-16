@@ -1,18 +1,26 @@
 #version 450
+#extension GL_EXT_shader_image_load_formatted : require
 
 layout (local_size_x = 16, local_size_y = 16) in;
-layout (set = 0, binding = 0, rgba8) uniform mediump image2D inputImage;
+layout (set = 0, binding = 0) readonly uniform mediump image2D inputImage;
+layout (set = 0, binding = 1) writeonly uniform mediump image2D outputImage;
 
 layout( push_constant ) uniform constants {
     float gamma;
     float exposure;
 } push;
 
-void main() {   
-    vec4 color = imageLoad(inputImage, ivec2(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y));
+void main() {
+    ivec2 coordinate = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(coordinate, imageSize(inputImage))) ||
+        any(greaterThanEqual(coordinate, imageSize(outputImage)))) {
+        return;
+    }
+
+    vec4 color = imageLoad(inputImage, coordinate);
     // exposure tone mapping
     vec3 corrected = vec3(1.0) - exp(-color.rgb * push.exposure);
     // gamma correction
-    color = vec4(pow(corrected, vec3(1 / push.gamma)), color.a);
-    imageStore(inputImage, ivec2(gl_GlobalInvocationID.xy), color);
+    color = vec4(pow(corrected, vec3(1.0 / push.gamma)), color.a);
+    imageStore(outputImage, coordinate, color);
 }

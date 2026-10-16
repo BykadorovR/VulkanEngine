@@ -1,6 +1,6 @@
+#include <cmath>
+#include <numbers>
 #include "Primitive/Mesh.h"
-#define _USE_MATH_DEFINES
-#include <math.h>
 
 AABB::AABB() {
   _min = glm::vec3(std::numeric_limits<float>::max());
@@ -28,13 +28,13 @@ glm::vec3 AABB::getMax() { return _max; }
 Mesh3D::Mesh3D(std::shared_ptr<EngineState> engineState) { _engineState = engineState; }
 
 std::vector<VkVertexInputAttributeDescription> Mesh3D::getAttributeDescriptions(
-    std::vector<std::tuple<VkFormat, uint32_t>> fields) {
+    const std::vector<std::tuple<VkFormat, std::size_t>>& fields) const {
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions(fields.size());
-  for (int i = 0; i < fields.size(); i++) {
-    attributeDescriptions[i] = {.location = static_cast<uint32_t>(i),
-                                .binding = 0,
-                                .format = std::get<0>(fields[i]),
-                                .offset = std::get<1>(fields[i])};
+  for (std::size_t fieldIndex = 0; fieldIndex < fields.size(); fieldIndex++) {
+    attributeDescriptions[fieldIndex] = {.location = static_cast<uint32_t>(fieldIndex),
+                                         .binding = 0,
+                                         .format = std::get<0>(fields[fieldIndex]),
+                                         .offset = static_cast<uint32_t>(std::get<1>(fields[fieldIndex]))};
   }
   return attributeDescriptions;
 }
@@ -70,16 +70,16 @@ MeshStatic3D::MeshStatic3D(std::shared_ptr<EngineState> engineState) : Mesh3D(en
   _indexBuffer = std::make_shared<VertexBufferStatic<uint32_t>>(VK_BUFFER_USAGE_INDEX_BUFFER_BIT, _engineState);
 }
 
-void MeshStatic3D::setVertices(std::vector<Vertex3D> vertices, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshStatic3D::setVertices(std::vector<Vertex3D> vertices) {
   std::unique_lock<std::mutex> accessLock(_accessVertexMutex);
   _vertexData = vertices;
-  _vertexBuffer->setData(_vertexData, commandBufferTransfer);
+  _vertexBuffer->setData(_vertexData);
 }
 
-void MeshStatic3D::setIndexes(std::vector<uint32_t> indexes, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshStatic3D::setIndexes(std::vector<uint32_t> indexes) {
   std::unique_lock<std::mutex> accessLock(_accessIndexMutex);
   _indexData = indexes;
-  _indexBuffer->setData(_indexData, commandBufferTransfer);
+  _indexBuffer->setData(_indexData);
 }
 
 std::shared_ptr<VertexBuffer<Vertex3D>> MeshStatic3D::getVertexBuffer() {
@@ -92,7 +92,7 @@ std::shared_ptr<VertexBuffer<uint32_t>> MeshStatic3D::getIndexBuffer() {
   return _indexBuffer;
 }
 
-void MeshStatic3D::setColor(std::vector<glm::vec3> color, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshStatic3D::setColor(std::vector<glm::vec3> color) {
   std::unique_lock<std::mutex> accessLock(_accessVertexMutex);
   if (color.size() == 0) return;
   if (color.size() > 1 && color.size() != _vertexData.size())
@@ -103,10 +103,10 @@ void MeshStatic3D::setColor(std::vector<glm::vec3> color, std::shared_ptr<Comman
     if (i < color.size()) colorValue = color[i];
     _vertexData[i].color = colorValue;
   }
-  _vertexBuffer->setData(_vertexData, commandBufferTransfer);
+  _vertexBuffer->setData(_vertexData);
 }
 
-void MeshStatic3D::setNormal(std::vector<glm::vec3> normal, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshStatic3D::setNormal(std::vector<glm::vec3> normal) {
   std::unique_lock<std::mutex> accessLock(_accessVertexMutex);
   if (normal.size() == 0) return;
   if (normal.size() > 1 && normal.size() != _vertexData.size())
@@ -117,10 +117,10 @@ void MeshStatic3D::setNormal(std::vector<glm::vec3> normal, std::shared_ptr<Comm
     if (i < normal.size()) normalValue = normal[i];
     _vertexData[i].normal = normalValue;
   }
-  _vertexBuffer->setData(_vertexData, commandBufferTransfer);
+  _vertexBuffer->setData(_vertexData);
 }
 
-void MeshStatic3D::setPosition(std::vector<glm::vec3> position, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshStatic3D::setPosition(std::vector<glm::vec3> position) {
   if (position.size() == 0) return;
   if (position.size() > 1 && position.size() != _vertexData.size())
     throw std::invalid_argument("Number of positions doesn't match number of vertices");
@@ -130,17 +130,17 @@ void MeshStatic3D::setPosition(std::vector<glm::vec3> position, std::shared_ptr<
     if (i < position.size()) positionValue = position[i];
     _vertexData[i].pos = positionValue;
   }
-  _vertexBuffer->setData(_vertexData, commandBufferTransfer);
+  _vertexBuffer->setData(_vertexData);
 }
 
-VkVertexInputBindingDescription MeshStatic3D::getBindingDescription() {
+VkVertexInputBindingDescription Mesh3D::getBindingDescription() const noexcept {
   VkVertexInputBindingDescription bindingDescription{.binding = 0,
                                                      .stride = sizeof(Vertex3D),
                                                      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX};
   return bindingDescription;
 }
 
-std::vector<VkVertexInputAttributeDescription> MeshStatic3D::getAttributeDescriptions() {
+std::vector<VkVertexInputAttributeDescription> Mesh3D::getAttributeDescriptions() const {
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions{
       {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex3D, pos)},
       {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex3D, normal)},
@@ -217,35 +217,7 @@ void MeshDynamic3D::setPosition(std::vector<glm::vec3> position) {
   _vertexBuffer->setData(_vertexData);
 }
 
-VkVertexInputBindingDescription MeshDynamic3D::getBindingDescription() {
-  VkVertexInputBindingDescription bindingDescription{.binding = 0,
-                                                     .stride = sizeof(Vertex3D),
-                                                     .inputRate = VK_VERTEX_INPUT_RATE_VERTEX};
-
-  return bindingDescription;
-}
-
-std::vector<VkVertexInputAttributeDescription> MeshDynamic3D::getAttributeDescriptions() {
-  std::vector<VkVertexInputAttributeDescription> attributeDescriptions{
-      {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex3D, pos)},
-      {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex3D, normal)},
-      {.location = 2, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex3D, color)},
-      {.location = 3, .binding = 0, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex3D, texCoord)},
-      {.location = 4,
-       .binding = 0,
-       .format = VK_FORMAT_R32G32B32A32_SFLOAT,
-       .offset = offsetof(Vertex3D, jointIndices)},
-      {.location = 5,
-       .binding = 0,
-       .format = VK_FORMAT_R32G32B32A32_SFLOAT,
-       .offset = offsetof(Vertex3D, jointWeights)},
-      {.location = 6, .binding = 0, .format = VK_FORMAT_R32G32B32A32_SFLOAT, .offset = offsetof(Vertex3D, tangent)}};
-
-  return attributeDescriptions;
-}
-
-MeshCube::MeshCube(std::shared_ptr<CommandBuffer> commandBufferTransfer, std::shared_ptr<EngineState> engineState)
-    : MeshStatic3D(engineState) {
+MeshCube::MeshCube(std::shared_ptr<EngineState> engineState) : MeshStatic3D(engineState) {
   // normal - z, tangent - y, bitangent - x
   std::vector<Vertex3D> vertices{{// 0
                                   .pos = glm::vec3(-0.5, -0.5, 0.5),
@@ -340,13 +312,12 @@ MeshCube::MeshCube(std::shared_ptr<CommandBuffer> commandBufferTransfer, std::sh
                                 4, 10, 7, 7, 1, 4,        // ccw if look to this face from front
                                                           //  Back
                                 16, 13, 19, 19, 22, 16};  // ccw if look to this face from back
-  setVertices(vertices, commandBufferTransfer);
-  setIndexes(indices, commandBufferTransfer);
-  setColor(std::vector<glm::vec3>(vertices.size(), glm::vec3(1.f, 1.f, 1.f)), commandBufferTransfer);
+  setVertices(vertices);
+  setIndexes(indices);
+  setColor(std::vector<glm::vec3>(vertices.size(), glm::vec3(1.f, 1.f, 1.f)));
 }
 
-MeshSphere::MeshSphere(std::shared_ptr<CommandBuffer> commandBufferTransfer, std::shared_ptr<EngineState> engineState)
-    : MeshStatic3D(engineState) {
+MeshSphere::MeshSphere(std::shared_ptr<EngineState> engineState) : MeshStatic3D(engineState) {
   int radius = 1;
   int sectorCount = 20;
   int stackCount = 20;
@@ -355,21 +326,23 @@ MeshSphere::MeshSphere(std::shared_ptr<CommandBuffer> commandBufferTransfer, std
   float nx, ny, nz, lengthInv = 1.0f / radius;  // vertex normal
   float s, t;                                   // vertex texCoord
 
-  float sectorStep = 2 * M_PI / sectorCount;
-  float stackStep = M_PI / stackCount;
+  constexpr float pi = std::numbers::pi_v<float>;
+  float sectorStep = 2.0f * pi / static_cast<float>(sectorCount);
+  float stackStep = pi / static_cast<float>(stackCount);
   float sectorAngle, stackAngle;
 
   std::vector<Vertex3D> vertices;
   for (int i = 0; i <= stackCount; ++i) {
     Vertex3D vertex;
-    stackAngle = M_PI / 2 - i * stackStep;  // starting from pi/2 to -pi/2
-    xz = radius * cosf(stackAngle);         // r * cos(u)
-    y = radius * sinf(stackAngle);          // r * sin(u)
+    stackAngle = pi / 2.0f - static_cast<float>(i) * stackStep;  // starting from pi/2 to -pi/2
+    xz = radius * cosf(stackAngle);                              // r * cos(u)
+    y = radius * sinf(stackAngle);                               // r * sin(u)
 
     // add (sectorCount+1) vertices per stack
     // first and last vertices have same position and normal, but different tex coords
     for (int j = 0; j <= sectorCount; ++j) {
-      sectorAngle = 2 * M_PI - j * sectorStep;  // starting from 2pi to 0, very IMPORTANT for winding order
+      sectorAngle = 2.0f * pi -
+                    static_cast<float>(j) * sectorStep;  // starting from 2pi to 0, very IMPORTANT for winding order
 
       // vertex position (x, y, z)
       x = xz * cosf(sectorAngle);  // r * cos(u) * cos(v)
@@ -417,45 +390,44 @@ MeshSphere::MeshSphere(std::shared_ptr<CommandBuffer> commandBufferTransfer, std
       }
     }
   }
-  setVertices(vertices, commandBufferTransfer);
-  setIndexes(indexes, commandBufferTransfer);
-  setColor(std::vector<glm::vec3>(vertices.size(), glm::vec3(1.f, 1.f, 1.f)), commandBufferTransfer);
+  setVertices(vertices);
+  setIndexes(indexes);
+  setColor(std::vector<glm::vec3>(vertices.size(), glm::vec3(1.f, 1.f, 1.f)));
 }
 
-MeshCapsuleStatic::MeshCapsuleStatic(float height,
-                                     float radius,
-                                     std::shared_ptr<CommandBuffer> commandBufferTransfer,
-                                     std::shared_ptr<EngineState> engineState)
+MeshCapsuleStatic::MeshCapsuleStatic(float height, float radius, std::shared_ptr<EngineState> engineState)
     : MeshStatic3D(engineState) {
-  _initialize(height, radius, commandBufferTransfer);
+  _initialize(height, radius);
 }
 
-void MeshCapsuleStatic::_initialize(float height, float radius, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshCapsuleStatic::_initialize(float height, float radius) {
   int sectorCount = 20;
   int stackCount = 10;
 
-  float sectorStep = 2 * M_PI / sectorCount;
-  float stackStep = M_PI / stackCount;
+  constexpr float pi = std::numbers::pi_v<float>;
+  float sectorStep = 2.0f * pi / static_cast<float>(sectorCount);
+  float stackStep = pi / static_cast<float>(stackCount);
   float halfHeight = height * 0.5f;
 
   std::vector<Vertex3D> vertices;
 
   // Top hemisphere
   for (int i = 0; i <= stackCount; ++i) {
-    float stackAngle = M_PI / 2 - i * stackStep / 2.f;  // pi/2 - 0
-    float xz = radius * cosf(stackAngle);               // r * cos(u)
-    float y = radius * sinf(stackAngle) + halfHeight;   // r * sin(u) + half of the height
+    float stackAngle = pi / 2.0f - static_cast<float>(i) * stackStep / 2.0f;  // pi/2 - 0
+    float xz = radius * cosf(stackAngle);                                     // r * cos(u)
+    float y = radius * sinf(stackAngle) + halfHeight;                         // r * sin(u) + half of the height
 
     for (int j = 0; j <= sectorCount; ++j) {
       Vertex3D vertex;
-      float sectorAngle = 2 * M_PI - j * sectorStep;  // very IMPORTANT for winding order
+      float sectorAngle = 2.0f * pi - static_cast<float>(j) * sectorStep;  // very IMPORTANT for winding order
 
       float x = xz * cosf(sectorAngle);  // r * cos(u) * cos(v)
       float z = xz * sinf(sectorAngle);  // r * cos(u) * sin(v)
 
       vertex.pos = glm::vec3(x, y, z);
       vertex.normal = glm::normalize(glm::vec3(x, y - halfHeight, z));  // normal of the top hemisphere
-      vertex.texCoord = glm::vec2((float)j / sectorCount, (float)i / stackCount);
+      vertex.texCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(sectorCount),
+                                  static_cast<float>(i) / static_cast<float>(stackCount));
       vertices.push_back(vertex);
     }
   }
@@ -466,23 +438,23 @@ void MeshCapsuleStatic::_initialize(float height, float radius, std::shared_ptr<
 
     for (int j = 0; j <= sectorCount; ++j) {
       Vertex3D vertex;
-      float sectorAngle = 2 * M_PI - j * sectorStep;  // very IMPORTANT for winding order
+      float sectorAngle = 2.0f * pi - static_cast<float>(j) * sectorStep;  // very IMPORTANT for winding order
 
       float x = radius * cosf(sectorAngle);
       float z = radius * sinf(sectorAngle);
 
       vertex.pos = glm::vec3(x, y, z);
       vertex.normal = glm::normalize(glm::vec3(x, 0.0f, z));  // cylinder normal
-      vertex.texCoord = glm::vec2((float)j / sectorCount, i);
+      vertex.texCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(sectorCount), static_cast<float>(i));
       vertices.push_back(vertex);
     }
   }
 
   // bottom hemisphere
   for (int i = 0; i <= stackCount; ++i) {
-    float stackAngle = -M_PI / 2 + i * stackStep / 2.f;  // -pi/2 - 0
-    float xz = radius * cosf(stackAngle);                // r * cos(u)
-    float y = radius * sinf(stackAngle) - halfHeight;    // r * sin(u) - half of the height
+    float stackAngle = -pi / 2.0f + static_cast<float>(i) * stackStep / 2.0f;  // -pi/2 - 0
+    float xz = radius * cosf(stackAngle);                                      // r * cos(u)
+    float y = radius * sinf(stackAngle) - halfHeight;                          // r * sin(u) - half of the height
 
     for (int j = 0; j <= sectorCount; ++j) {
       Vertex3D vertex;
@@ -493,7 +465,8 @@ void MeshCapsuleStatic::_initialize(float height, float radius, std::shared_ptr<
 
       vertex.pos = glm::vec3(x, y, z);
       vertex.normal = glm::normalize(glm::vec3(x, y + halfHeight, z));  // normal of the bottom hemisphere
-      vertex.texCoord = glm::vec2((float)j / sectorCount, (float)i / stackCount);
+      vertex.texCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(sectorCount),
+                                  static_cast<float>(i) / static_cast<float>(stackCount));
       vertices.push_back(vertex);
     }
   }
@@ -551,14 +524,12 @@ void MeshCapsuleStatic::_initialize(float height, float radius, std::shared_ptr<
     }
   }
 
-  setVertices(vertices, commandBufferTransfer);
-  setIndexes(indices, commandBufferTransfer);
-  setColor(std::vector<glm::vec3>(vertices.size(), glm::vec3(1.f, 1.f, 1.f)), commandBufferTransfer);
+  setVertices(vertices);
+  setIndexes(indices);
+  setColor(std::vector<glm::vec3>(vertices.size(), glm::vec3(1.f, 1.f, 1.f)));
 }
 
-void MeshCapsuleStatic::reset(float height, float radius, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
-  _initialize(height, radius, commandBufferTransfer);
-}
+void MeshCapsuleStatic::reset(float height, float radius) { _initialize(height, radius); }
 
 MeshCapsuleDynamic::MeshCapsuleDynamic(float height, float radius, std::shared_ptr<EngineState> engineState)
     : MeshDynamic3D(engineState) {
@@ -569,28 +540,30 @@ void MeshCapsuleDynamic::_initialize(float height, float radius) {
   int sectorCount = 20;
   int stackCount = 10;
 
-  float sectorStep = 2 * M_PI / sectorCount;
-  float stackStep = M_PI / stackCount;
+  constexpr float pi = std::numbers::pi_v<float>;
+  float sectorStep = 2.0f * pi / static_cast<float>(sectorCount);
+  float stackStep = pi / static_cast<float>(stackCount);
   float halfHeight = height * 0.5f;
 
   std::vector<Vertex3D> vertices;
 
   // Top hemisphere
   for (int i = 0; i <= stackCount; ++i) {
-    float stackAngle = M_PI / 2 - i * stackStep / 2.f;  // pi/2 - 0
-    float xz = radius * cosf(stackAngle);               // r * cos(u)
-    float y = radius * sinf(stackAngle) + halfHeight;   // r * sin(u) + half of the height
+    float stackAngle = pi / 2.0f - static_cast<float>(i) * stackStep / 2.0f;  // pi/2 - 0
+    float xz = radius * cosf(stackAngle);                                     // r * cos(u)
+    float y = radius * sinf(stackAngle) + halfHeight;                         // r * sin(u) + half of the height
 
     for (int j = 0; j <= sectorCount; ++j) {
       Vertex3D vertex;
-      float sectorAngle = 2 * M_PI - j * sectorStep;  // very IMPORTANT for winding order
+      float sectorAngle = 2.0f * pi - static_cast<float>(j) * sectorStep;  // very IMPORTANT for winding order
 
       float x = xz * cosf(sectorAngle);  // r * cos(u) * cos(v)
       float z = xz * sinf(sectorAngle);  // r * cos(u) * sin(v)
 
       vertex.pos = glm::vec3(x, y, z);
       vertex.normal = glm::normalize(glm::vec3(x, y - halfHeight, z));  // normal of the top hemisphere
-      vertex.texCoord = glm::vec2((float)j / sectorCount, (float)i / stackCount);
+      vertex.texCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(sectorCount),
+                                  static_cast<float>(i) / static_cast<float>(stackCount));
       vertices.push_back(vertex);
     }
   }
@@ -601,23 +574,23 @@ void MeshCapsuleDynamic::_initialize(float height, float radius) {
 
     for (int j = 0; j <= sectorCount; ++j) {
       Vertex3D vertex;
-      float sectorAngle = 2 * M_PI - j * sectorStep;  // very IMPORTANT for winding order
+      float sectorAngle = 2.0f * pi - static_cast<float>(j) * sectorStep;  // very IMPORTANT for winding order
 
       float x = radius * cosf(sectorAngle);
       float z = radius * sinf(sectorAngle);
 
       vertex.pos = glm::vec3(x, y, z);
       vertex.normal = glm::normalize(glm::vec3(x, 0.0f, z));  // cylinder normal
-      vertex.texCoord = glm::vec2((float)j / sectorCount, i);
+      vertex.texCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(sectorCount), static_cast<float>(i));
       vertices.push_back(vertex);
     }
   }
 
   // bottom hemisphere
   for (int i = 0; i <= stackCount; ++i) {
-    float stackAngle = -M_PI / 2 + i * stackStep / 2.f;  // -pi/2 - 0
-    float xz = radius * cosf(stackAngle);                // r * cos(u)
-    float y = radius * sinf(stackAngle) - halfHeight;    // r * sin(u) - half of the height
+    float stackAngle = -pi / 2.0f + static_cast<float>(i) * stackStep / 2.0f;  // -pi/2 - 0
+    float xz = radius * cosf(stackAngle);                                      // r * cos(u)
+    float y = radius * sinf(stackAngle) - halfHeight;                          // r * sin(u) - half of the height
 
     for (int j = 0; j <= sectorCount; ++j) {
       Vertex3D vertex;
@@ -628,7 +601,8 @@ void MeshCapsuleDynamic::_initialize(float height, float radius) {
 
       vertex.pos = glm::vec3(x, y, z);
       vertex.normal = glm::normalize(glm::vec3(x, y + halfHeight, z));  // normal of the bottom hemisphere
-      vertex.texCoord = glm::vec2((float)j / sectorCount, (float)i / stackCount);
+      vertex.texCoord = glm::vec2(static_cast<float>(j) / static_cast<float>(sectorCount),
+                                  static_cast<float>(i) / static_cast<float>(stackCount));
       vertices.push_back(vertex);
     }
   }
@@ -696,13 +670,13 @@ void MeshCapsuleDynamic::reset(float height, float radius) { _initialize(height,
 Mesh2D::Mesh2D(std::shared_ptr<EngineState> engineState) { _engineState = engineState; }
 
 std::vector<VkVertexInputAttributeDescription> Mesh2D::getAttributeDescriptions(
-    std::vector<std::tuple<VkFormat, uint32_t>> fields) {
+    const std::vector<std::tuple<VkFormat, std::size_t>>& fields) const {
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions(fields.size());
-  for (int i = 0; i < fields.size(); i++) {
-    attributeDescriptions[i] = {.location = static_cast<uint32_t>(i),
-                                .binding = 0,
-                                .format = std::get<0>(fields[i]),
-                                .offset = std::get<1>(fields[i])};
+  for (std::size_t fieldIndex = 0; fieldIndex < fields.size(); fieldIndex++) {
+    attributeDescriptions[fieldIndex] = {.location = static_cast<uint32_t>(fieldIndex),
+                                         .binding = 0,
+                                         .format = std::get<0>(fields[fieldIndex]),
+                                         .offset = static_cast<uint32_t>(std::get<1>(fields[fieldIndex]))};
   }
   return attributeDescriptions;
 }
@@ -722,32 +696,32 @@ MeshStatic2D::MeshStatic2D(std::shared_ptr<EngineState> engineState) : Mesh2D(en
   _indexBuffer = std::make_shared<VertexBufferStatic<uint32_t>>(VK_BUFFER_USAGE_INDEX_BUFFER_BIT, _engineState);
 }
 
-void MeshStatic2D::setVertices(std::vector<Vertex2D> vertices, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshStatic2D::setVertices(std::vector<Vertex2D> vertices) {
   std::unique_lock<std::mutex> accessLock(_accessVertexMutex);
   _vertexData = vertices;
-  _vertexBuffer->setData(vertices, commandBufferTransfer);
+  _vertexBuffer->setData(vertices);
 }
 
-void MeshStatic2D::setIndexes(std::vector<uint32_t> indexes, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshStatic2D::setIndexes(std::vector<uint32_t> indexes) {
   std::unique_lock<std::mutex> accessLock(_accessIndexMutex);
   _indexData = indexes;
-  _indexBuffer->setData(indexes, commandBufferTransfer);
+  _indexBuffer->setData(indexes);
 }
 
-void MeshStatic2D::setColor(glm::vec3 color, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshStatic2D::setColor(glm::vec3 color) {
   std::unique_lock<std::mutex> accessLock(_accessVertexMutex);
   for (auto& vertex : _vertexData) {
     vertex.color = color;
   }
-  _vertexBuffer->setData(_vertexData, commandBufferTransfer);
+  _vertexBuffer->setData(_vertexData);
 }
 
-void MeshStatic2D::setNormal(glm::vec3 normal, std::shared_ptr<CommandBuffer> commandBufferTransfer) {
+void MeshStatic2D::setNormal(glm::vec3 normal) {
   std::unique_lock<std::mutex> accessLock(_accessVertexMutex);
   for (auto& vertex : _vertexData) {
     vertex.normal = normal;
   }
-  _vertexBuffer->setData(_vertexData, commandBufferTransfer);
+  _vertexBuffer->setData(_vertexData);
 }
 
 std::shared_ptr<VertexBuffer<Vertex2D>> MeshStatic2D::getVertexBuffer() {
@@ -760,7 +734,7 @@ std::shared_ptr<VertexBuffer<uint32_t>> MeshStatic2D::getIndexBuffer() {
   return _indexBuffer;
 }
 
-VkVertexInputBindingDescription MeshStatic2D::getBindingDescription() {
+VkVertexInputBindingDescription Mesh2D::getBindingDescription() const noexcept {
   VkVertexInputBindingDescription bindingDescription{.binding = 0,
                                                      .stride = sizeof(Vertex2D),
                                                      .inputRate = VK_VERTEX_INPUT_RATE_VERTEX};
@@ -768,7 +742,7 @@ VkVertexInputBindingDescription MeshStatic2D::getBindingDescription() {
   return bindingDescription;
 }
 
-std::vector<VkVertexInputAttributeDescription> MeshStatic2D::getAttributeDescriptions() {
+std::vector<VkVertexInputAttributeDescription> Mesh2D::getAttributeDescriptions() const {
   std::vector<VkVertexInputAttributeDescription> attributeDescriptions{
       {.location = 0, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex2D, pos)},
       {.location = 1, .binding = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex2D, normal)},

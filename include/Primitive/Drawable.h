@@ -1,7 +1,10 @@
 #pragma once
-#include "Utility/Settings.h"
-#include "Vulkan/Command.h"
-#include "Graphic/LightManager.h"
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <string>
+#include "Graphic/Light.h"
+
+import Command;
 #undef OPAQUE
 #undef TRANSPARENT
 
@@ -22,7 +25,7 @@ struct BufferMVP {
   glm::mat4 projection;
 };
 
-class Drawable : virtual public Named {
+class Transformable : virtual public Named {
  protected:
   glm::vec3 _originShift = glm::vec3{0.f, 0.f, 0.f};
   glm::quat _originRotate = glm::identity<glm::quat>();
@@ -31,7 +34,6 @@ class Drawable : virtual public Named {
   glm::vec3 _scale = glm::vec3{1.f, 1.f, 1.f};
 
  public:
-  virtual void draw(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
   void setOriginShift(glm::vec3 originShift);
   void setOriginRotate(glm::quat rotate);
   void setTranslate(glm::vec3 translate);
@@ -44,6 +46,12 @@ class Drawable : virtual public Named {
   glm::mat4 getModel();
 };
 
+class Drawable : public Transformable {
+ public:
+  virtual void draw(const RenderGraph::CommandBuffer* commandBuffer) = 0;
+  virtual ~Drawable() = default;
+};
+
 // Such objects are being rendered on the shadow map, it doesn't mean that such objects will be shadowed.
 // It means that such objects can cast a shadow.
 class Shadowable : virtual public Named {
@@ -51,5 +59,5 @@ class Shadowable : virtual public Named {
   virtual void drawShadow(LightType lightType,
                           int lightIndex,
                           int face,
-                          std::shared_ptr<CommandBuffer> commandBuffer) = 0;
+                          const RenderGraph::CommandBuffer* commandBuffer) = 0;
 };

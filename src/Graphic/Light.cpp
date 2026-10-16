@@ -32,7 +32,7 @@ void PointLight::setAttenuationIndex(int index) {
 
 int PointLight::getDistance() { return _light->distance; }
 
-DirectionalLight::DirectionalLight(std::shared_ptr<EngineState> engineState) {
+DirectionalLight::DirectionalLight() {
   _light = std::make_shared<LightFields>();
   _camera = std::make_shared<CameraDirectionalLight>();
 }

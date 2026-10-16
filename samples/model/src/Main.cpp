@@ -30,7 +30,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Model");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -71,27 +70,24 @@ Main::Main() {
   _directionalLight->getCamera()->setPosition(glm::vec3(0.f, 20.f, 0.f));
 
   {
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
     _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_BACK_BIT);
     _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
     std::dynamic_pointer_cast<MeshStatic3D>(_cubeColoredLightVertical->getMesh())
-        ->setColor(std::vector{_cubeColoredLightVertical->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-                   _core->getCommandBufferApplication());
+        ->setColor(std::vector{_cubeColoredLightVertical->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
     _core->addDrawable(_cubeColoredLightVertical);
 
     _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_BACK_BIT);
     _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
     std::dynamic_pointer_cast<MeshStatic3D>(_cubeColoredLightHorizontal->getMesh())
         ->setColor(
-            std::vector{_cubeColoredLightHorizontal->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-            _core->getCommandBufferApplication());
+            std::vector{_cubeColoredLightHorizontal->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
     _core->addDrawable(_cubeColoredLightHorizontal);
 
     auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_BACK_BIT);
     std::dynamic_pointer_cast<MeshStatic3D>(cubeColoredLightDirectional->getMesh())
         ->setColor(
-            std::vector{cubeColoredLightDirectional->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-            _core->getCommandBufferApplication());
+            std::vector{cubeColoredLightDirectional->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
     cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
     cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
     _core->addDrawable(cubeColoredLightDirectional);
@@ -269,14 +265,13 @@ Main::Main() {
     auto max = aabb->getMax();
 
     auto mesh = std::make_shared<MeshCapsuleStatic>((max - min).y - (max - min).z, (max - min).z / 2.f,
-                                                    _core->getCommandBufferApplication(), _core->getEngineState());
+                                                    _core->getEngineState());
     _capsule = _core->createShape3D(ShapeType::CAPSULE, mesh);
     _capsule->setTranslate(glm::vec3(-2.f, 0.f, -3.f));
     _capsule->setOriginShift(glm::vec3(0.f, (max - min).y / 2.f, 0.f));
     _capsule->setDrawType(DrawType::WIREFRAME);
     std::dynamic_pointer_cast<MeshStatic3D>(_capsule->getMesh())
-        ->setColor(std::vector{_capsule->getMesh()->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)},
-                   _core->getCommandBufferApplication());
+        ->setColor(std::vector{_capsule->getMesh()->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
     _core->addDrawable(_capsule);
   }
 
@@ -320,7 +315,7 @@ void Main::update() {
     auto min = aabb->getMin();
     auto max = aabb->getMax();
     std::dynamic_pointer_cast<MeshCapsuleStatic>(_capsule->getMesh())
-        ->reset((max - min).y - (max - min).z, (max - min).z / 2.f, _core->getCommandBufferApplication());
+        ->reset((max - min).y - (max - min).z, (max - min).z / 2.f);
   }
 
   auto [FPSLimited, FPSReal] = _core->getFPS();

@@ -1,7 +1,7 @@
 #pragma once
-#include "Utility/EngineState.h"
 #include <chrono>
 #include <thread>
+#include "Utility/EngineState.h"
 
 class TimerFPS {
  private:
@@ -26,7 +26,7 @@ class Timer {
   uint64_t _frameCounterSleep;
   std::chrono::high_resolution_clock::time_point _startTimeCurrent;
   float _elapsedCurrent;
-  int _FPSMaxPrevious;
+  int _fpsMaxPrevious;
   std::shared_ptr<EngineState> _engineState;
 
  public:
@@ -34,7 +34,7 @@ class Timer {
   void tick();
   void tock();
   void reset();
-  void sleep(int FPSMax);
+  void sleep(int fpsMax);
   float getElapsedCurrent();
   uint64_t getFrameCounter();
 };

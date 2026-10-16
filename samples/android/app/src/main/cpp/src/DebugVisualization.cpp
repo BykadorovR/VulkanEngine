@@ -20,11 +20,6 @@ DebugVisualization::DebugVisualization(std::shared_ptr<Camera> camera, std::shar
 
   _near = _camera->getNear();
   _far = _camera->getFar();
-  auto [r, g, b, a] = state->getSettings()->getClearColor().float32;
-  _R = r;
-  _G = g;
-  _B = b;
-
   _farPlaneCW = _core->createSprite();
   _farPlaneCW->enableLighting(false);
   _farPlaneCW->enableShadow(false);
@@ -35,7 +30,7 @@ DebugVisualization::DebugVisualization(std::shared_ptr<Camera> camera, std::shar
   _farPlaneCCW->enableDepth(false);
 
   auto boxModel = _core->createModelGLTF("box/Box.gltf");
-  auto meshSphere = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
+  auto meshSphere = std::make_shared<MeshSphere>(_core->getEngineState());
   for (auto light : _core->getPointLights()) {
     _pointValue = light->getColor()[0];
     auto model = _core->createModel3D(boxModel);
@@ -131,9 +126,8 @@ void DebugVisualization::_drawShadowMaps() {
       toggleShadows["##Shadows"] = &_shadowMapIndex;
       gui->drawListBox(_shadowKeys, toggleShadows, _shadowKeys.size());
 
-      std::shared_ptr<Texture> currentTexture;
+      std::shared_ptr<RenderGraph::Texture> currentTexture;
       // check if directional
-      std::shared_ptr<DescriptorSet> shadowDescriptorSet;
       if (_shadowMapIndex < _core->getDirectionalLights().size()) {
         currentTexture = _core->getDirectionalShadows()[_shadowMapIndex]->getShadowMapTexture()[currentFrame];
       } else {
@@ -302,25 +296,7 @@ void DebugVisualization::draw() {
     if (_core->getGUI()->drawInputFloat({{"gamma", &gamma}})) _core->getPostprocessing()->setGamma(gamma);
     float exposure = _core->getPostprocessing()->getExposure();
     if (_core->getGUI()->drawInputFloat({{"exposure", &exposure}})) _core->getPostprocessing()->setExposure(exposure);
-    int blurKernelSize = _core->getBloomBlur()->getKernelSize();
-    if (_core->getGUI()->drawInputInt({{"Kernel", &blurKernelSize}}))
-      _core->getBloomBlur()->setKernelSize(blurKernelSize);
-    int blurSigma = _core->getBloomBlur()->getSigma();
-    if (_core->getGUI()->drawInputInt({{"Sigma", &blurSigma}})) _core->getBloomBlur()->setSigma(blurSigma);
-    int bloomPasses = _core->getEngineState()->getSettings()->getBloomPasses();
-    if (_core->getGUI()->drawInputInt({{"Passes", &bloomPasses}}))
-      _core->getEngineState()->getSettings()->setBloomPasses(bloomPasses);
 
-    gui->drawInputFloat({{"R", &_R}});
-    _R = std::min(_R, 1.f);
-    _R = std::max(_R, 0.f);
-    gui->drawInputFloat({{"G", &_G}});
-    _G = std::min(_G, 1.f);
-    _G = std::max(_G, 0.f);
-    gui->drawInputFloat({{"B", &_B}});
-    _B = std::min(_B, 1.f);
-    _B = std::max(_B, 0.f);
-    _core->getEngineState()->getSettings()->setClearColor({_R, _G, _B, 1.f});
     gui->endTree();
   }
 

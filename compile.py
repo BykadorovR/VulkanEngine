@@ -40,6 +40,6 @@ for f in files:
 	debug_key = "-Os"
 	if debug:
 		debug_key = "-g"
-	command_line = f"{compiler_path} -c {debug_key} {f} -o {output_path}{file_name}{extension_new}"
-	#print(command_line)
-	subprocess.call(command_line)
+	commandLine = [compiler_path, "-c", debug_key, f, "-o", output_path + file_name + extension_new]
+	#print(commandLine)
+	subprocess.run(commandLine, check=True)

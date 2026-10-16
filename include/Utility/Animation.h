@@ -10,7 +10,7 @@ class Animation {
   std::vector<std::shared_ptr<NodeGLTF>> _nodes;
   std::shared_ptr<EngineState> _engineState;
   // separate descriptor for each skin
-  std::vector<std::vector<std::shared_ptr<Buffer>>> _ssboJoints;
+  std::vector<std::vector<std::shared_ptr<RenderGraph::Buffer>>> _ssboJoints;
   int _animationIndex = 0;
   std::map<int, glm::mat4> _matricesGlobal;
   // needed for blending between different animations
@@ -48,5 +48,5 @@ class Animation {
   void calculateJoints(float deltaTime);
   void updateBuffers(int currentImage);
 
-  std::vector<std::vector<std::shared_ptr<Buffer>>> getGlobalMatricesBuffer();
+  std::vector<std::vector<std::shared_ptr<RenderGraph::Buffer>>> getGlobalMatricesBuffer();
 };

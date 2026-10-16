@@ -1,5 +1,14 @@
 #pragma once
-#include "Vulkan/Buffer.h"
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <cstddef>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <tuple>
+#include <vector>
+#include "Graphic/Buffer.h"
 #include "Utility/EngineState.h"
 
 struct MeshPrimitive {
@@ -69,12 +78,12 @@ class Mesh3D {
   std::map<int, std::shared_ptr<AABB>> getAABBJoints();
   // custom fields
   std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions(
-      std::vector<std::tuple<VkFormat, uint32_t>> fields);
+      const std::vector<std::tuple<VkFormat, std::size_t>>& fields) const;
+  VkVertexInputBindingDescription getBindingDescription() const noexcept;
+  // all fields
+  std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() const;
   virtual std::shared_ptr<VertexBuffer<Vertex3D>> getVertexBuffer() = 0;
   virtual std::shared_ptr<VertexBuffer<uint32_t>> getIndexBuffer() = 0;
-  virtual VkVertexInputBindingDescription getBindingDescription() = 0;
-  // all fields
-  virtual std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() = 0;
 };
 
 class MeshDynamic3D : public Mesh3D {
@@ -93,8 +102,6 @@ class MeshDynamic3D : public Mesh3D {
 
   std::shared_ptr<VertexBuffer<Vertex3D>> getVertexBuffer() override;
   std::shared_ptr<VertexBuffer<uint32_t>> getIndexBuffer() override;
-  VkVertexInputBindingDescription getBindingDescription() override;
-  std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() override;
 };
 
 class MeshStatic3D : public Mesh3D {
@@ -105,38 +112,33 @@ class MeshStatic3D : public Mesh3D {
  public:
   MeshStatic3D(std::shared_ptr<EngineState> engineState);
 
-  void setVertices(std::vector<Vertex3D> vertices, std::shared_ptr<CommandBuffer> commandBufferTransfer);
-  void setIndexes(std::vector<uint32_t> indexes, std::shared_ptr<CommandBuffer> commandBufferTransfer);
-  void setColor(std::vector<glm::vec3> color, std::shared_ptr<CommandBuffer> commandBufferTransfer);
-  void setNormal(std::vector<glm::vec3> normal, std::shared_ptr<CommandBuffer> commandBufferTransfer);
-  void setPosition(std::vector<glm::vec3> position, std::shared_ptr<CommandBuffer> commandBufferTransfer);
+  void setVertices(std::vector<Vertex3D> vertices);
+  void setIndexes(std::vector<uint32_t> indexes);
+  void setColor(std::vector<glm::vec3> color);
+  void setNormal(std::vector<glm::vec3> normal);
+  void setPosition(std::vector<glm::vec3> position);
 
   std::shared_ptr<VertexBuffer<Vertex3D>> getVertexBuffer() override;
   std::shared_ptr<VertexBuffer<uint32_t>> getIndexBuffer() override;
-  VkVertexInputBindingDescription getBindingDescription() override;
-  std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() override;
 };
 
 class MeshCube : public MeshStatic3D {
  public:
-  MeshCube(std::shared_ptr<CommandBuffer> commandBufferTransfer, std::shared_ptr<EngineState> engineState);
+  explicit MeshCube(std::shared_ptr<EngineState> engineState);
 };
 
 class MeshSphere : public MeshStatic3D {
  public:
-  MeshSphere(std::shared_ptr<CommandBuffer> commandBufferTransfer, std::shared_ptr<EngineState> engineState);
+  explicit MeshSphere(std::shared_ptr<EngineState> engineState);
 };
 
 class MeshCapsuleStatic : public MeshStatic3D {
  private:
-  void _initialize(float height, float radius, std::shared_ptr<CommandBuffer> commandBufferTransfer);
+  void _initialize(float height, float radius);
 
  public:
-  MeshCapsuleStatic(float height,
-                    float radius,
-                    std::shared_ptr<CommandBuffer> commandBufferTransfer,
-                    std::shared_ptr<EngineState> engineState);
-  void reset(float height, float radius, std::shared_ptr<CommandBuffer> commandBufferTransfer);
+  MeshCapsuleStatic(float height, float radius, std::shared_ptr<EngineState> engineState);
+  void reset(float height, float radius);
 };
 
 class MeshCapsuleDynamic : public MeshDynamic3D {
@@ -160,13 +162,13 @@ class Mesh2D {
 
   // custom fields
   std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions(
-      std::vector<std::tuple<VkFormat, uint32_t>> fields);
+      const std::vector<std::tuple<VkFormat, std::size_t>>& fields) const;
+  VkVertexInputBindingDescription getBindingDescription() const noexcept;
+  std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() const;
   const std::vector<uint32_t>& getIndexData();
   const std::vector<Vertex2D>& getVertexData();
   virtual std::shared_ptr<VertexBuffer<Vertex2D>> getVertexBuffer() = 0;
   virtual std::shared_ptr<VertexBuffer<uint32_t>> getIndexBuffer() = 0;
-  virtual VkVertexInputBindingDescription getBindingDescription() = 0;
-  virtual std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() = 0;
 };
 
 class MeshStatic2D : public Mesh2D {
@@ -177,13 +179,11 @@ class MeshStatic2D : public Mesh2D {
  public:
   MeshStatic2D(std::shared_ptr<EngineState> engineState);
 
-  void setVertices(std::vector<Vertex2D> vertices, std::shared_ptr<CommandBuffer> commandBufferTransfer);
-  void setIndexes(std::vector<uint32_t> indexes, std::shared_ptr<CommandBuffer> commandBufferTransfer);
-  void setColor(glm::vec3 color, std::shared_ptr<CommandBuffer> commandBufferTransfer);
-  void setNormal(glm::vec3 normal, std::shared_ptr<CommandBuffer> commandBufferTransfer);
+  void setVertices(std::vector<Vertex2D> vertices);
+  void setIndexes(std::vector<uint32_t> indexes);
+  void setColor(glm::vec3 color);
+  void setNormal(glm::vec3 normal);
 
   std::shared_ptr<VertexBuffer<Vertex2D>> getVertexBuffer() override;
   std::shared_ptr<VertexBuffer<uint32_t>> getIndexBuffer() override;
-  VkVertexInputBindingDescription getBindingDescription() override;
-  std::vector<VkVertexInputAttributeDescription> getAttributeDescriptions() override;
 };

@@ -60,7 +60,7 @@ class Main {
 
  public:
   Main();
-  void update(std::shared_ptr<CommandBuffer> commandBuffer);
+  void update(const RenderGraph::CommandBuffer* commandBuffer);
   void reset(int width, int height);
   void start();
 };

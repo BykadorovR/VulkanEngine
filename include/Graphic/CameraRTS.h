@@ -1,3 +1,6 @@
+#pragma once
+#include <optional>
+#include <utility>
 #include "Camera.h"
 #include "Primitive/Drawable.h"
 #undef near

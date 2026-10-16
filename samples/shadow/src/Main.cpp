@@ -34,7 +34,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Shadow");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -79,8 +78,8 @@ Main::Main() {
   _core->createDirectionalShadow(_directionalLight, true);
 
   {
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)}, commandBufferTransfer);
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
     _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
     _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
     _core->addDrawable(_cubeColoredLightVertical);
@@ -154,7 +153,7 @@ Main::Main() {
     materialCubePhong->setNormal({cubemapNormalPhong->getTexture()});
     materialCubePhong->setSpecular({_core->getResourceManager()->getCubemapZero()->getTexture()});
 
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
     auto cubeTexturedPhong = _core->createShape3D(ShapeType::CUBE, meshCube);
     cubeTexturedPhong->setMaterial(materialCubePhong);
     cubeTexturedPhong->setTranslate(glm::vec3(0.f, -3.f, -3.f));
@@ -163,9 +162,8 @@ Main::Main() {
   }
   {
     // sphere colored
-    auto meshSphere = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshSphere->setColor(std::vector{meshSphere->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)},
-                         commandBufferTransfer);
+    auto meshSphere = std::make_shared<MeshSphere>(_core->getEngineState());
+    meshSphere->setColor(std::vector{meshSphere->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)});
     auto sphereColored = _core->createShape3D(ShapeType::SPHERE, meshSphere);
     sphereColored->setTranslate(glm::vec3(0.f, 0.f, -5.f));
     _core->addDrawable(sphereColored);

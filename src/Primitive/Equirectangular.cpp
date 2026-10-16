@@ -1,43 +1,53 @@
+#include <cstring>
+#include <future>
+#include "stb_image.h"
 #include "Primitive/Equirectangular.h"
 
+// Keep standard-library declarations outside the imported module with MSVC.
+import Shader;
+
 Equirectangular::Equirectangular(std::shared_ptr<ImageCPU<float>> imageCPU,
-                                 std::shared_ptr<CommandBuffer> commandBufferTransfer,
+                                 const RenderGraph::CommandBuffer* commandBufferTransfer,
                                  std::shared_ptr<EngineState> engineState) {
   _commandBufferTransfer = commandBufferTransfer;
   _engineState = engineState;
-  auto currentFrame = _engineState->getFrameInFlight();
-
   auto pixels = imageCPU->getData().get();
   auto [texWidth, texHeight] = imageCPU->getResolution();
 
   int imageSize = texWidth * texHeight * STBI_rgb_alpha;
   int bufferSize = imageSize * sizeof(float);
   // fill buffer
-  _stagingBuffer = std::make_shared<Buffer>(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                            engineState);
-  _stagingBuffer->setData(pixels);
+  _stagingBuffer = std::make_shared<RenderGraph::Buffer>(
+      bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+      *engineState->getMemoryAllocator());
+  std::memcpy(static_cast<std::byte*>(_stagingBuffer->getAllocationInfo().pMappedData), pixels,
+              static_cast<std::size_t>(_stagingBuffer->getSize()));
 
   // image
   auto [width, height] = engineState->getSettings()->getResolution();
   // HDR image is in VK_FORMAT_R32G32B32A32_SFLOAT
-  _image = std::make_shared<Image>(std::tuple{texWidth, texHeight}, 1, 1, VK_FORMAT_R32G32B32A32_SFLOAT,
-                                   VK_IMAGE_TILING_OPTIMAL,
-                                   VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, engineState);
-  _image->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1,
-                       commandBufferTransfer);
-  _image->copyFrom(_stagingBuffer, {0}, commandBufferTransfer);
-  _image->changeLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                       VK_IMAGE_ASPECT_COLOR_BIT, 1, 1, commandBufferTransfer);
-  _imageView = std::make_shared<ImageView>(_image, VK_IMAGE_VIEW_TYPE_2D, 0, 1, 0, 1, VK_IMAGE_ASPECT_COLOR_BIT,
-                                           engineState);
+  _image = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator());
+  _image->createImage(VK_FORMAT_R32G32B32A32_SFLOAT, {texWidth, texHeight}, 1, 1, VK_IMAGE_ASPECT_COLOR_BIT,
+                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+  const VkDeviceSize imageOffset = 0;
+  const auto* imageBytes = static_cast<const std::byte*>(_stagingBuffer->getAllocationInfo().pMappedData);
+  engineState->getResourceUploader()->upload(
+      *_image, std::span(imageBytes, static_cast<std::size_t>(_stagingBuffer->getSize())), std::span(&imageOffset, 1));
+  engineState->getResourceUploader()->submit();
+
+  _imageView = std::make_shared<RenderGraph::ImageView>(std::move(_image), *engineState->getDevice());
+  _imageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);
   auto filter = VK_FILTER_NEAREST;
   if (_engineState->getDevice()->isFormatFeatureSupported(VK_FORMAT_R32G32B32A32_SFLOAT, VK_IMAGE_TILING_OPTIMAL,
                                                           VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
     filter = VK_FILTER_LINEAR;
   }
 
-  _texture = std::make_shared<Texture>(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, 1, filter, _imageView, engineState);
+  auto sampler = std::make_shared<RenderGraph::Sampler>(*engineState->getDevice());
+  sampler->createSampler(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, 1, engineState->getSettings()->getAnisotropicSamples(),
+                         filter);
+  _texture = std::make_shared<RenderGraph::Texture>(_imageView, std::move(sampler));
   // convert to cubemap
   _mesh3D = std::make_shared<MeshStatic3D>(engineState);
 
@@ -62,29 +72,11 @@ Equirectangular::Equirectangular(std::shared_ptr<ImageCPU<float>> imageCPU,
                                 1, 3, 2, 2, 0, 1,   // ccw if look to this face from front
                                                     //  Back
                                 5, 4, 6, 6, 7, 5};  // ccw if look to this face from back
-  _mesh3D->setVertices(vertices, commandBufferTransfer);
-  _mesh3D->setIndexes(indices, commandBufferTransfer);
-  _mesh3D->setColor(std::vector<glm::vec3>(vertices.size(), glm::vec3(1.f, 1.f, 1.f)), commandBufferTransfer);
-  _material = std::make_shared<MaterialColor>(MaterialTarget::SIMPLE, commandBufferTransfer, engineState);
+  _mesh3D->setVertices(vertices);
+  _mesh3D->setIndexes(indices);
+  _mesh3D->setColor(std::vector<glm::vec3>(vertices.size(), glm::vec3(1.f, 1.f, 1.f)));
+  _material = std::make_shared<MaterialColor>(MaterialTarget::SIMPLE, engineState);
   _material->setBaseColor({_texture});
-  {
-    std::vector<VkAttachmentDescription> colorDescription{
-        {.format = _engineState->getSettings()->getGraphicColorFormat(),
-         .samples = VK_SAMPLE_COUNT_1_BIT,
-         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-         .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-         .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-         // comes from previous stage/initialization
-         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-         // goes to render shader as input
-         .finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL}};
-
-    // we want write to this attachments
-    VkAttachmentReference colorReference{.attachment = 0, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-    _renderPass = std::make_shared<RenderPass>(_engineState->getDevice());
-    _renderPass->initializeCustom(colorDescription, {colorReference}, std::nullopt);
-  }
 
   // initialize camera UBO and descriptor sets for draw
   // initialize UBO
@@ -92,59 +84,53 @@ Equirectangular::Equirectangular(std::shared_ptr<ImageCPU<float>> imageCPU,
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
     _bufferCubemap[i].resize(6);
     for (int f = 0; f < 6; f++) {
-      _bufferCubemap[i][f] = std::make_shared<Buffer>(
+      _bufferCubemap[i][f] = std::make_shared<RenderGraph::Buffer>(
           sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, engineState);
+          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+          *engineState->getMemoryAllocator());
     }
   }
   // setup color
   {
-    _descriptorSetLayout = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-    std::vector<VkDescriptorSetLayoutBinding> layoutColor{{.binding = 0,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                                                           .pImmutableSamplers = nullptr},
-                                                          {.binding = 1,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                           .pImmutableSamplers = nullptr}};
-    _descriptorSetLayout->createCustom(layoutColor);
+    auto shader = std::make_shared<RenderGraph::Shader>(*engineState->getDevice());
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/IBL/skyboxEquirectangular_vertex.spv"));
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/IBL/skyboxEquirectangular_fragment.spv"));
+    _descriptorSetLayout = std::make_shared<RenderGraph::DescriptorSetLayout>(*_engineState->getDevice());
+    _descriptorSetLayout->createCustom(shader->getDescriptorSetLayoutBindings().at(0));
 
     _descriptorSetCubemap.resize(_engineState->getSettings()->getMaxFramesInFlight());
     for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
       _descriptorSetCubemap[i].resize(6);
       for (int f = 0; f < 6; f++) {
-        _descriptorSetCubemap[i][f] = std::make_shared<DescriptorSet>(_descriptorSetLayout, engineState);
-        std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor = {
-            {0,
-             {VkDescriptorBufferInfo{.buffer = _bufferCubemap[i][f]->getData(),
-                                     .offset = 0,
-                                     .range = _bufferCubemap[i][f]->getSize()}}}};
-        std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
-            {1,
-             {VkDescriptorImageInfo{
-                 .sampler = _texture->getSampler()->getSampler(),
-                 .imageView = _texture->getImageView()->getImageView(),
-                 .imageLayout = _texture->getImageView()->getImage()->getImageLayout(),
-             }}}};
-        _descriptorSetCubemap[i][f]->createCustom(bufferInfoColor, textureInfoColor);
+        _descriptorSetCubemap[i][f] = std::make_shared<RenderGraph::DescriptorSet>(
+            std::vector<RenderGraph::DescriptorSetLayout*>{(_descriptorSetLayout).get()},
+            *engineState->getDescriptorPool(), *engineState->getDevice(), 0);
+        _descriptorSetCubemap[i][f]->add({_bufferCubemap[i][f].get()});
+        _descriptorSetCubemap[i][f]->add({_texture.get()});
+        _descriptorSetCubemap[i][f]->initialize(*commandBufferTransfer);
       }
     }
-    {
-      auto shader = std::make_shared<Shader>(engineState);
-      shader->add("shaders/IBL/skyboxEquirectangular_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/IBL/skyboxEquirectangular_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      _pipelineEquirectangular = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
-                                                                   _engineState->getDevice());
-      _pipelineEquirectangular->setDepthTest(true);
-      _pipelineEquirectangular->setDepthWrite(true);
-      _pipelineEquirectangular->createCustom(
-          shader, {std::pair{std::string("color"), _descriptorSetLayout}}, {}, _mesh3D->getBindingDescription(),
-          _mesh3D->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}}),
-          _renderPass);
-    }
+    RenderGraph::PipelineGraphic pipelineGraphic;
+    pipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
+    pipelineGraphic.setDepthAttachment(std::nullopt);
+    pipelineGraphic.setDepthTest(false);
+    pipelineGraphic.setDepthWrite(false);
+    std::vector<RenderGraph::DescriptorSetLayout*> descriptorSetLayouts{_descriptorSetLayout.get()};
+    const auto vertexBinding = _mesh3D->getBindingDescription();
+    const auto vertexAttributes = _mesh3D->getAttributeDescriptions(
+        {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}});
+    const VkPipelineVertexInputStateCreateInfo vertexInput{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+        .vertexBindingDescriptionCount = 1,
+        .pVertexBindingDescriptions = &vertexBinding,
+        .vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexAttributes.size()),
+        .pVertexAttributeDescriptions = vertexAttributes.data(),
+    };
+    _pipelineEquirectangular = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
+    _pipelineEquirectangular->createGraphic(pipelineGraphic, shader->getShaderStageInfo(), descriptorSetLayouts, {},
+                                            vertexInput);
   }
 
   _camera = std::make_shared<CameraFly>(_engineState);
@@ -164,18 +150,15 @@ void Equirectangular::_convertToCubemap() {
                                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                        VK_FILTER_LINEAR, _commandBufferTransfer, _engineState);
 
-  _frameBuffer.resize(6);
-  for (int i = 0; i < 6; i++) {
-    auto currentTexture = _cubemap->getTextureSeparate()[i][0];
-    _frameBuffer[i] = std::make_shared<Framebuffer>(std::vector{currentTexture->getImageView()},
-                                                    currentTexture->getImageView()->getImage()->getResolution(),
-                                                    _renderPass, _engineState->getDevice());
-  }
-
   auto currentFrame = _engineState->getFrameInFlight();
   vkCmdBindPipeline(_commandBufferTransfer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _pipelineEquirectangular->getPipeline());
   auto [width, height] = _engineState->getSettings()->getShadowMapResolution();
+  auto& cubemapImage = _cubemap->getTexture()->getImageView().getImage();
+  cubemapImage.changeLayout(
+      cubemapImage.getImageLayout(), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *_commandBufferTransfer);
   // render equirectangular to cubemap
   /////////////////////////////////////////////////////////////////////////////////////////
   // render graphic
@@ -183,19 +166,19 @@ void Equirectangular::_convertToCubemap() {
   for (int i = 0; i < 6; i++) {
     auto currentTexture = _cubemap->getTextureSeparate()[i][0];
 
-    auto [widthFramebuffer, heightFramebuffer] = _frameBuffer[i]->getResolution();
-    VkClearValue clearColor{.color = _engineState->getSettings()->getClearColor()};
-    VkRenderPassBeginInfo renderPassInfo{.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-                                         .renderPass = _renderPass->getRenderPass(),
-                                         .framebuffer = _frameBuffer[i]->getBuffer(),
-                                         .renderArea = {.offset = {0, 0},
-                                                        .extent = {.width = static_cast<uint32_t>(widthFramebuffer),
-                                                                   .height = static_cast<uint32_t>(heightFramebuffer)}},
-                                         .clearValueCount = 1,
-                                         .pClearValues = &clearColor};
-
-    // TODO: only one depth texture?
-    vkCmdBeginRenderPass(_commandBufferTransfer->getCommandBuffer(), &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    VkRenderingAttachmentInfo colorAttachment{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                                              .imageView = currentTexture->getImageView().getImageView(),
+                                              .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+                                              .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+                                              .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+                                              .clearValue = {.color = {.float32 = {0.f, 0.f, 0.f, 1.f}}}};
+    VkRenderingInfo renderingInfo{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .renderArea = {.offset = {0, 0}, .extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}},
+        .layerCount = 1,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &colorAttachment};
+    vkCmdBeginRendering(_commandBufferTransfer->getCommandBuffer(), &renderingInfo);
 
     logger->begin("Render equirectangular", _commandBufferTransfer);
     // up is inverted for X and Z because of some specific cubemap Y coordinate stuff
@@ -236,53 +219,31 @@ void Equirectangular::_convertToCubemap() {
     VkRect2D scissor{.offset = {0, 0}, .extent = VkExtent2D(width, height)};
     vkCmdSetScissor(_commandBufferTransfer->getCommandBuffer(), 0, 1, &scissor);
     BufferMVP cameraUBO{.model = glm::mat4(1.f), .view = _camera->getView(), .projection = _camera->getProjection()};
-    _bufferCubemap[currentFrame][i]->setData(&cameraUBO);
+    std::memcpy(static_cast<std::byte*>(_bufferCubemap[currentFrame][i]->getAllocationInfo().pMappedData), &cameraUBO,
+                static_cast<std::size_t>(_bufferCubemap[currentFrame][i]->getSize()));
 
-    VkBuffer vertexBuffers[] = {_mesh3D->getVertexBuffer()->getBuffer()->getData()};
+    VkBuffer vertexBuffers[] = {_mesh3D->getVertexBuffer()->getBuffer()->getBuffer()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(_commandBufferTransfer->getCommandBuffer(), 0, 1, vertexBuffers, offsets);
 
-    vkCmdBindIndexBuffer(_commandBufferTransfer->getCommandBuffer(), _mesh3D->getIndexBuffer()->getBuffer()->getData(),
-                         0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(_commandBufferTransfer->getCommandBuffer(),
+                         _mesh3D->getIndexBuffer()->getBuffer()->getBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
-    auto pipelineLayout = _pipelineEquirectangular->getDescriptorSetLayout();
-    auto colorLayout = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                    [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                      return info.first == std::string("color");
-                                    });
-    if (colorLayout != pipelineLayout.end()) {
-      vkCmdBindDescriptorSets(_commandBufferTransfer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              _pipelineEquirectangular->getPipelineLayout(), 0, 1,
-                              &_descriptorSetCubemap[currentFrame][i]->getDescriptorSets(), 0, nullptr);
-    }
+    _descriptorSetCubemap[currentFrame][i]->bind(
+        VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineEquirectangular->getPipelineLayout(), *_commandBufferTransfer);
 
     vkCmdDrawIndexed(_commandBufferTransfer->getCommandBuffer(), static_cast<uint32_t>(_mesh3D->getIndexData().size()),
                      1, 0, 0, 0);
     logger->end(_commandBufferTransfer);
 
-    vkCmdEndRenderPass(_commandBufferTransfer->getCommandBuffer());
-
-    VkImageMemoryBarrier colorBarrier{.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                                      .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                      .dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-                                      .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                      .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                      .image = currentTexture->getImageView()->getImage()->getImage(),
-                                      .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                                                           .baseMipLevel = 0,
-                                                           .levelCount = 1,
-                                                           .baseArrayLayer = 0,
-                                                           .layerCount = 1}};
-    vkCmdPipelineBarrier(_commandBufferTransfer->getCommandBuffer(),
-                         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,  // srcStageMask
-                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,          // dstStageMask
-                         0, 0, nullptr, 0, nullptr,
-                         1,             // imageMemoryBarrierCount
-                         &colorBarrier  // pImageMemoryBarriers
-    );
+    vkCmdEndRendering(_commandBufferTransfer->getCommandBuffer());
   }
+  cubemapImage.changeLayout(
+      cubemapImage.getImageLayout(), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *_commandBufferTransfer);
 }
 
-std::shared_ptr<Texture> Equirectangular::getTexture() { return _texture; }
+std::shared_ptr<RenderGraph::Texture> Equirectangular::getTexture() { return _texture; }
 
 std::shared_ptr<Cubemap> Equirectangular::getCubemap() { return _cubemap; }

@@ -1,11 +1,13 @@
 #pragma once
 #include <memory>
 #include <vector>
-#include "Graphic/Texture.h"
 #include "Primitive/Cubemap.h"
 #include "Utility/Settings.h"
 #include "Graphic/Camera.h"
 #include "Utility/Logger.h"
+
+enum class LightType { DIRECTIONAL = 0, POINT = 1, AMBIENT = 2 };
+enum class ShadowAlgorithm { PCF = 0, VSM = 1 };
 
 class AmbientLight {
  private:
@@ -27,12 +29,11 @@ class DirectionalLight {
     alignas(16) glm::vec3 color;
     alignas(16) glm::vec3 position;
   };
-  std::shared_ptr<EngineState> _engineState;
   std::shared_ptr<LightFields> _light = nullptr;
   std::shared_ptr<CameraDirectionalLight> _camera;
 
  public:
-  DirectionalLight(std::shared_ptr<EngineState> engineState);
+  DirectionalLight();
   void setColor(glm::vec3 color);
   glm::vec3 getColor();
   std::shared_ptr<CameraDirectionalLight> getCamera();

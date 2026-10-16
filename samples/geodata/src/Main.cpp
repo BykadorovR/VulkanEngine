@@ -1,11 +1,6 @@
 #include <iostream>
-#include <chrono>
-#include <future>
 #include "Main.h"
-#include <glm/gtx/matrix_decompose.hpp>
 #include "Utility/PhysicsManager.h"
-#include <nlohmann/json.hpp>
-#include "glm/gtx/vector_angle.hpp"
 
 void InputHandler::setMoveCallback(std::function<void(glm::vec2)> callback) { _callbackMove = callback; }
 
@@ -35,33 +30,9 @@ void InputHandler::charNotify(unsigned int code) {}
 
 void InputHandler::scrollNotify(double xOffset, double yOffset) {}
 
-void Main::_loadTerrain(std::string path) {
-  std::ifstream file(path);
-  nlohmann::json inputJSON;
-  file >> inputJSON;
-  if (inputJSON["stripe"].is_null() == false) {
-    _stripeLeft = inputJSON["stripe"][0];
-    _stripeRight = inputJSON["stripe"][1];
-    _stripeTop = inputJSON["stripe"][2];
-    _stripeBot = inputJSON["stripe"][3];
-  }
-
-  _patchX = inputJSON["patches"][0];
-  _patchY = inputJSON["patches"][1];
-  _patchRotationsIndex.resize(_patchX * _patchY);
-  for (int i = 0; i < inputJSON["rotation"].size(); i++) {
-    _patchRotationsIndex[i] = inputJSON["rotation"][i];
-  }
-  _patchTextures.resize(_patchX * _patchY);
-  for (int i = 0; i < inputJSON["textures"].size(); i++) {
-    _patchTextures[i] = inputJSON["textures"][i];
-  }
-}
-
 void Main::_createTerrainColor() {
   _core->removeDrawable(_terrain);
-  //_loadTerrain("../assets/test.json");
-  _terrain = _core->createTerrainComposition(_core->loadImageCPU("../assets/heightmap.png"));
+  _terrain = _core->createTerrainComposition(_core->loadImageCPU("heightmap.png"));
   _terrain->setPatchNumber(_patchX, _patchY);
   _terrain->setPatchRotations(_patchRotationsIndex);
   _terrain->setPatchTextures(_patchTextures);
@@ -81,7 +52,6 @@ Main::Main() {
   int mipMapLevels = 8;
   auto settings = std::make_shared<Settings>();
   settings->setName("Terrain");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -97,8 +67,8 @@ Main::Main() {
   settings->setMaxFramesInFlight(2);
   settings->setThreadsInPool(6);
   settings->setDesiredFPS(60);
-  settings->setAssetsPath("../assets/");
-  settings->setShadersPath("../assets/");
+  settings->setAssetsPath(GEODATA_ASSETS_PATH);
+  settings->setShadersPath(GEODATA_ASSETS_PATH);
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
@@ -120,9 +90,8 @@ Main::Main() {
   ambientLight->setColor({0.1f, 0.1f, 0.1f});
 
   {
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-                       _core->getCommandBufferApplication());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
     _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
     _core->addDrawable(_cubeColoredLightVertical);
 
@@ -134,7 +103,7 @@ Main::Main() {
     cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
     _core->addDrawable(cubeColoredLightDirectional);
   }
-  auto heightmapCPU = _core->loadImageCPU("../assets/heightmap.png");
+  auto heightmapCPU = _core->loadImageCPU("heightmap.png");
 
   _physicsManager = _core->createPhysicsManager();
   _physicsManager->setDeltaTime(1.f / static_cast<float>(settings->getDesiredFPS()));
@@ -145,9 +114,8 @@ Main::Main() {
   _shape3DPhysics = std::make_shared<Shape3DPhysics>(glm::vec3(0.f, 50.f, 0.f), glm::vec3(0.5f, 0.5f, 0.5f),
                                                      _physicsManager);
   {
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(0.f, 0.f, 1.f)},
-                       _core->getCommandBufferApplication());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(0.f, 0.f, 1.f)});
     _cubePlayer = _core->createShape3D(ShapeType::CUBE, meshCube);
     _cubePlayer->setTranslate(glm::vec3(-4.f, -14.f, -10.f));
     _core->addDrawable(_cubePlayer);
@@ -155,13 +123,10 @@ Main::Main() {
   auto callbackPosition = [&](glm::vec2 click) { _endPoint = _terrainPhysics->getHit(click); };
   _inputHandler->setMoveCallback(callbackPosition);
   {
-    auto tile0 = _core->createTexture("../assets/desert/albedo.png", settings->getLoadTextureColorFormat(),
-                                      mipMapLevels);
-    auto tile1 = _core->createTexture("../assets/rock/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
-    auto tile2 = _core->createTexture("../assets/grass/albedo.png", settings->getLoadTextureColorFormat(),
-                                      mipMapLevels);
-    auto tile3 = _core->createTexture("../assets/ground/albedo.png", settings->getLoadTextureColorFormat(),
-                                      mipMapLevels);
+    auto tile0 = _core->createTexture("desert/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
+    auto tile1 = _core->createTexture("rock/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
+    auto tile2 = _core->createTexture("grass/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
+    auto tile3 = _core->createTexture("ground/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
     _materialColor = _core->createMaterialColor(MaterialTarget::TERRAIN);
     _materialColor->setBaseColor({tile0, tile1, tile2, tile3});
   }
@@ -204,7 +169,7 @@ Main::Main() {
     _modelSimple->setOriginShift(glm::vec3(0.f, -((max - min) / 2.f).y, 0.f));
     _core->addDrawable(_modelSimple);
 
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
     _boundingBox = _core->createShape3D(ShapeType::CUBE, meshCube);
     _boundingBox->setDrawType(DrawType::WIREFRAME);
     _boundingBox->setScale(maxBB - minBB);
@@ -216,11 +181,9 @@ Main::Main() {
     _model3DPhysics->setRotationSpeed(3.f);
     _model3DPhysics->setMovementSpeed(_speed);
 
-    auto meshCapsule = std::make_shared<MeshCapsuleStatic>(
-        (maxBB - minBB).y - (maxBB - minBB).z, (maxBB - minBB).z / 2.f, _core->getCommandBufferApplication(),
-        _core->getEngineState());
-    meshCapsule->setColor(std::vector{meshCapsule->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)},
-                          _core->getCommandBufferApplication());
+    auto meshCapsule = std::make_shared<MeshCapsuleStatic>((maxBB - minBB).y - (maxBB - minBB).z,
+                                                           (maxBB - minBB).z / 2.f, _core->getEngineState());
+    meshCapsule->setColor(std::vector{meshCapsule->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
     _capsule = _core->createShape3D(ShapeType::CAPSULE, meshCapsule);
     _capsule->setTranslate(glm::vec3(0.f, 0.f, 0.f));
     _capsule->setDrawType(DrawType::WIREFRAME);
@@ -291,7 +254,6 @@ void Main::update() {
     _core->getGUI()->drawText({std::string("normal x: ") + std::format("{:.6f}", normal.x),
                                std::string("normal y: ") + std::format("{:.6f}", normal.y),
                                std::string("normal z: ") + std::format("{:.6f}", normal.z)});
-    _core->getGUI()->drawText({std::string("angle: ") + std::format("{:.2f}", glm::degrees(_angle))});
     _core->getGUI()->endTree();
   }
   if (_core->getGUI()->startTree("Camera")) {

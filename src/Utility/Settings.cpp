@@ -36,8 +36,6 @@ void Settings::setPoolSize(int poolSizeDescriptorSets,
   _poolSizeDescriptorSets = poolSizeDescriptorSets;
 }
 
-void Settings::setClearColor(VkClearColorValue clearColor) { _clearColor = clearColor; }
-
 void Settings::setThreadsInPool(int threadsInPool) { _threadsInPool = threadsInPool; }
 
 void Settings::setAssetsPath(std::string path) { _pathAssets = path; }
@@ -73,8 +71,6 @@ int Settings::getMaxPointLights() { return _maxPointLights; }
 std::vector<std::tuple<int, float>> Settings::getAttenuations() { return _attenuations; }
 
 int Settings::getThreadsInPool() { return _threadsInPool; }
-
-VkClearColorValue Settings::getClearColor() { return _clearColor; }
 
 int Settings::getAnisotropicSamples() { return _anisotropicSamples; }
 

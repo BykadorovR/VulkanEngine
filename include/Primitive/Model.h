@@ -1,22 +1,31 @@
 #pragma once
-#include "Vulkan/Device.h"
-#include "Vulkan/Buffer.h"
-#include "Vulkan/Shader.h"
-#include "Vulkan/Pipeline.h"
-#include "Vulkan/Command.h"
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <type_traits>
+#include <vector>
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Character/Character.h>
+#include "Utility/Loader.h"
 #include "Utility/Settings.h"
 #include "Utility/GameState.h"
 #include "Utility/ResourceManager.h"
 #include "Utility/Logger.h"
-#include "Utility/Loader.h"
 #include "Utility/Animation.h"
 #include "Graphic/Camera.h"
 #include "Graphic/LightManager.h"
 #include "Graphic/Material.h"
 #include "Primitive/Drawable.h"
 #include "Utility/PhysicsManager.h"
-#include <Jolt/Physics/Body/BodyCreationSettings.h>
-#include <Jolt/Physics/Character/Character.h>
+
+import Buffer;
+import Command;
+import DescriptorBuffer;
+import Pipeline;
 
 enum class GroundState {
   OnGround,       ///< Character is on the ground and can move freely.
@@ -67,43 +76,49 @@ class Model3D : public Drawable, public Shadowable {
   std::shared_ptr<GameState> _gameState;
   std::vector<bool> _changedMaterial;
   std::vector<std::shared_ptr<NodeGLTF>> _nodes;
-  std::vector<std::vector<std::vector<std::shared_ptr<Buffer>>>> _cameraUBODepth;
-  std::vector<std::shared_ptr<Buffer>> _cameraUBOFull;
-  std::vector<std::vector<std::vector<std::shared_ptr<DescriptorSet>>>> _descriptorSetCameraDepth;
-  std::vector<std::vector<std::shared_ptr<DescriptorSet>>> _descriptorSetColor, _descriptorSetPhong, _descriptorSetPBR,
-      _descriptorSetJoints;
-  std::vector<std::shared_ptr<DescriptorSet>> _descriptorSetNormalsMesh;
-  std::shared_ptr<DescriptorSetLayout> _descriptorSetLayoutJoints;
-  std::shared_ptr<DescriptorSetLayout> _descriptorSetLayoutNormalsMesh;
-  std::shared_ptr<DescriptorSetLayout> _descriptorSetLayoutColor, _descriptorSetLayoutPhong, _descriptorSetLayoutPBR;
-  std::map<MaterialType, std::shared_ptr<PipelineGraphic>> _pipeline, _pipelineCullOff, _pipelineWireframe;
-  std::shared_ptr<PipelineGraphic> _pipelineNormalMesh, _pipelineNormalMeshCullOff, _pipelineTangentMesh,
+  std::vector<std::vector<std::vector<std::shared_ptr<RenderGraph::Buffer>>>> _cameraUBODepth;
+  std::vector<std::shared_ptr<RenderGraph::Buffer>> _cameraUBOFull;
+  std::vector<std::vector<std::vector<std::shared_ptr<RenderGraph::DescriptorSet>>>> _descriptorSetCameraDepth;
+  std::vector<std::vector<std::shared_ptr<RenderGraph::DescriptorSet>>> _descriptorSetColor, _descriptorSetPhong,
+      _descriptorSetPBR, _descriptorSetJoints;
+  std::vector<std::shared_ptr<RenderGraph::DescriptorSet>> _descriptorSetNormalsMesh;
+  std::shared_ptr<RenderGraph::DescriptorSetLayout> _descriptorSetLayoutJoints;
+  std::shared_ptr<RenderGraph::DescriptorSetLayout> _descriptorSetLayoutNormalsMesh;
+  std::shared_ptr<RenderGraph::DescriptorSetLayout> _descriptorSetLayoutDepth;
+  std::shared_ptr<RenderGraph::DescriptorSetLayout> _descriptorSetLayoutColor, _descriptorSetLayoutPhong,
+      _descriptorSetLayoutPBR;
+  std::map<MaterialType, std::shared_ptr<RenderGraph::Pipeline>> _pipeline, _pipelineCullOff, _pipelineWireframe;
+  std::shared_ptr<RenderGraph::Pipeline> _pipelineNormalMesh, _pipelineNormalMeshCullOff, _pipelineTangentMesh,
       _pipelineTangentMeshCullOff, _pipelineDirectional, _pipelinePoint;
 
   std::shared_ptr<MaterialPhong> _defaultMaterialPhong;
-  std::shared_ptr<MaterialPBR> _defaultMaterialPBR;
   std::shared_ptr<MaterialColor> _defaultMaterialColor;
+  std::mutex _descriptorUpdateMutex;
   std::shared_ptr<MeshStatic3D> _mesh;
   std::shared_ptr<Animation> _defaultAnimation;
   bool _enableDepth = true;
   bool _enableShadow = true;
   bool _enableLighting = true;
+  std::vector<bool> _changedShadowDescriptors;
+  std::vector<bool> _changedJointsDescriptors;
   std::shared_ptr<Animation> _animation;
   std::vector<std::shared_ptr<Material>> _materials;
   std::vector<std::shared_ptr<MeshStatic3D>> _meshes;
   MaterialType _materialType = MaterialType::PHONG;
   DrawType _drawType = DrawType::FILL;
 
-  void _updateJointsDescriptor();
-  void _updateColorDescriptor();
-  void _updatePhongDescriptor();
-  void _updatePBRDescriptor();
+  void _updateDepthDescriptors(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer);
+  void _updateJointsDescriptor(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer);
+  void _updateColorDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
+  void _updatePhongDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
+  void _updatePBRDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
+  void _unregisterMaterialDescriptors();
 
-  void _drawNode(std::shared_ptr<CommandBuffer> commandBuffer,
-                 std::shared_ptr<Pipeline> pipeline,
-                 std::shared_ptr<Pipeline> pipelineCullOff,
-                 std::shared_ptr<DescriptorSet> cameraDS,
-                 std::shared_ptr<Buffer> cameraUBO,
+  void _drawNode(const RenderGraph::CommandBuffer* commandBuffer,
+                 std::shared_ptr<RenderGraph::Pipeline> pipeline,
+                 std::shared_ptr<RenderGraph::Pipeline> pipelineCullOff,
+                 std::shared_ptr<RenderGraph::DescriptorSet> cameraDS,
+                 std::shared_ptr<RenderGraph::Buffer> cameraUBO,
                  glm::mat4 view,
                  glm::mat4 projection,
                  std::shared_ptr<NodeGLTF> node);
@@ -111,7 +126,7 @@ class Model3D : public Drawable, public Shadowable {
  public:
   Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
           const std::vector<std::shared_ptr<MeshStatic3D>>& meshes,
-          std::shared_ptr<CommandBuffer> commandBufferTransfer,
+          const RenderGraph::CommandBuffer* commandBufferTransfer,
           std::shared_ptr<GameState> gameState,
           std::shared_ptr<EngineState> engineState);
   void enableShadow(bool enable);
@@ -131,6 +146,9 @@ class Model3D : public Drawable, public Shadowable {
   std::shared_ptr<AABB> getAABBPositions();
   std::shared_ptr<AABB> getAABBJoints();
 
-  void draw(std::shared_ptr<CommandBuffer> commandBuffer) override;
-  void drawShadow(LightType lightType, int lightIndex, int face, std::shared_ptr<CommandBuffer> commandBuffer) override;
+  void draw(const RenderGraph::CommandBuffer* commandBuffer) override;
+  void drawShadow(LightType lightType,
+                  int lightIndex,
+                  int face,
+                  const RenderGraph::CommandBuffer* commandBuffer) override;
 };

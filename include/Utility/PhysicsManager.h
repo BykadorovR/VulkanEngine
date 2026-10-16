@@ -1,4 +1,5 @@
 #pragma once
+#include <type_traits>
 #include <Jolt/Jolt.h>
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>

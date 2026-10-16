@@ -1,4 +1,18 @@
 #pragma once
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <array>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+#include <vector>
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include "Utility/EngineState.h"
 #include "Utility/GameState.h"
 #include "Graphic/Camera.h"
@@ -8,11 +22,14 @@
 #include "Primitive/Line.h"
 #include "Primitive/Mesh.h"
 #include "Utility/PhysicsManager.h"
-#include <optional>
-#include <Jolt/Physics/Body/BodyCreationSettings.h>
-#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include "Utility/GUI.h"
 #include "Primitive/Shape3D.h"
+
+import Buffer;
+import Command;
+import DescriptorBuffer;
+import Pipeline;
+import Texture;
 
 class TerrainPhysics {
  private:
@@ -57,11 +74,10 @@ class TerrainCPU : public Drawable {
   std::tuple<int, int> _resolution;
   std::vector<std::shared_ptr<MeshDynamic3D>> _mesh;
   std::vector<bool> _changeMeshTriangles, _changeMeshHeightmap;
-  std::vector<std::shared_ptr<Buffer>> _cameraBuffer;
-  std::vector<std::vector<std::vector<std::shared_ptr<Buffer>>>> _cameraBufferDepth;
-  std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> _descriptorSetLayout;
-  std::vector<std::shared_ptr<DescriptorSet>> _descriptorSetColor;
-  std::shared_ptr<PipelineGraphic> _pipeline, _pipelineWireframe;
+  std::vector<std::shared_ptr<RenderGraph::Buffer>> _cameraBuffer;
+  std::vector<std::shared_ptr<RenderGraph::DescriptorSetLayout>> _descriptorSetLayout;
+  std::vector<std::shared_ptr<RenderGraph::DescriptorSet>> _descriptorSetColor;
+  std::shared_ptr<RenderGraph::Pipeline> _pipeline, _pipelineWireframe;
   float _heightScale = 64.f;
   float _heightShift = 16.f;
   bool _enableEdge = false;
@@ -71,7 +87,7 @@ class TerrainCPU : public Drawable {
   std::shared_ptr<ImageCPU<uint8_t>> _heightMap;
   std::vector<float> _heights;
 
-  void _updateColorDescriptor();
+  void _updateColorDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
   void _loadStrip(int currentFrame);
   void _loadTriangles(int currentFrame);
   void _loadTerrain();
@@ -91,7 +107,7 @@ class TerrainCPU : public Drawable {
 
   DrawType getDrawType();
   void patchEdge(bool enable);
-  void draw(std::shared_ptr<CommandBuffer> commandBuffer) override;
+  void draw(const RenderGraph::CommandBuffer* commandBuffer) override;
 };
 
 struct alignas(16) PatchDescription {
@@ -105,13 +121,13 @@ class TerrainDebug : public Drawable, public InputSubscriber {
   std::shared_ptr<GameState> _gameState;
   std::shared_ptr<TerrainPhysics> _terrainPhysics;
   std::shared_ptr<TerrainCPU> _terrainCPU;
-  std::vector<std::shared_ptr<DescriptorSet>> _descriptorSetColor;
+  std::vector<std::shared_ptr<RenderGraph::DescriptorSet>> _descriptorSetColor;
 
   std::shared_ptr<Material> _material;
   std::vector<bool> _changedMaterial;
   std::shared_ptr<ImageCPU<uint8_t>> _heightMapCPU;
-  std::shared_ptr<BufferImage> _heightMapGPU;
-  std::shared_ptr<Texture> _heightMap;
+  std::shared_ptr<ImageDataBuffer> _heightMapGPU;
+  std::shared_ptr<RenderGraph::Texture> _heightMap;
   std::vector<std::shared_ptr<MeshDynamic3D>> _mesh;
 
   DrawType _drawType = DrawType::FILL;
@@ -156,8 +172,8 @@ class TerrainDebug : public Drawable, public InputSubscriber {
   std::shared_ptr<ImageCPU<uint8_t>> getHeightmap();
   std::optional<glm::vec3> getHitCoords();
 
-  void draw(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
-  virtual void drawDebug(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
+  void draw(const RenderGraph::CommandBuffer* commandBuffer) override = 0;
+  virtual void drawDebug(const RenderGraph::CommandBuffer* commandBuffer) = 0;
 
   void cursorNotify(float xPos, float yPos) = 0;
   void mouseNotify(int button, int action, int mods) = 0;
@@ -172,12 +188,12 @@ class TerrainGPU : public Drawable, public Shadowable {
 
   std::shared_ptr<MeshStatic3D> _mesh;
   std::shared_ptr<Material> _material;
-  std::shared_ptr<Texture> _heightMap;
+  std::shared_ptr<RenderGraph::Texture> _heightMap;
   std::shared_ptr<ImageCPU<uint8_t>> _heightMapCPU;
-  std::shared_ptr<BufferImage> _heightMapGPU;
+  std::shared_ptr<ImageDataBuffer> _heightMapGPU;
   MaterialType _materialType = MaterialType::COLOR;
   std::vector<bool> _changedMaterial;
-  std::vector<std::shared_ptr<DescriptorSet>> _descriptorSetColor, _descriptorSetPhong, _descriptorSetPBR;
+  std::vector<std::shared_ptr<RenderGraph::DescriptorSet>> _descriptorSetColor, _descriptorSetPhong, _descriptorSetPBR;
 
   float _heightScale = 64.f;
   float _heightShift = 16.f;
@@ -190,10 +206,11 @@ class TerrainGPU : public Drawable, public Shadowable {
   std::vector<int> _patchRotationsIndex;
   std::pair<int, int> _patchNumber = {32, 32};
 
-  void _calculateMesh(std::shared_ptr<CommandBuffer> commandBuffer);
+  void _calculateMesh();
+  void _unregisterMaterialUpdates();
 
  public:
-  virtual void initialize(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
+  virtual void initialize(const RenderGraph::CommandBuffer* commandBuffer) = 0;
   void setPatchNumber(int x, int y);
   void setPatchRotations(std::vector<int> patchRotationsIndex);
   void setPatchTextures(std::vector<int> patchTextures);
@@ -208,7 +225,7 @@ class TerrainGPU : public Drawable, public Shadowable {
   void setMaterial(std::shared_ptr<MaterialPhong> material);
   void setMaterial(std::shared_ptr<MaterialPBR> material);
 
-  void draw(std::shared_ptr<CommandBuffer> commandBuffer) = 0;
-  void drawShadow(LightType lightType, int lightIndex, int face, std::shared_ptr<CommandBuffer> commandBuffer) = 0;
+  void draw(const RenderGraph::CommandBuffer* commandBuffer) override = 0;
+  void drawShadow(LightType lightType, int lightIndex, int face, const RenderGraph::CommandBuffer* commandBuffer) = 0;
   virtual ~TerrainGPU() = default;
 };

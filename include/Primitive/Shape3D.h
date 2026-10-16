@@ -1,15 +1,28 @@
 #pragma once
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <string>
+#include <type_traits>
+#include <utility>
+#include <vector>
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include "Utility/EngineState.h"
 #include "Utility/GameState.h"
 #include "Utility/ResourceManager.h"
-#include "Vulkan/Descriptor.h"
-#include "Vulkan/Pipeline.h"
 #include "Primitive/Drawable.h"
 #include "Primitive/Mesh.h"
 #include "Graphic/Camera.h"
 #include "Graphic/Material.h"
 #include "Utility/PhysicsManager.h"
-#include <Jolt/Physics/Body/BodyCreationSettings.h>
+
+import Buffer;
+import Command;
+import DescriptorBuffer;
+import Pipeline;
 
 enum class ShapeType { CUBE = 0, SPHERE = 1, CAPSULE = 2 };
 
@@ -38,36 +51,35 @@ class Shape3D : public Drawable, public Shadowable {
       _shadersTangentMesh;
   ShapeType _shapeType;
   std::shared_ptr<Mesh3D> _mesh;
-  std::map<MaterialType, std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>>>
-      _descriptorSetLayout;
-  std::shared_ptr<DescriptorSetLayout> _descriptorSetLayoutNormalsMesh;
-  std::vector<std::vector<std::vector<std::shared_ptr<DescriptorSet>>>> _descriptorSetCameraDepth;
-  std::vector<std::shared_ptr<DescriptorSet>> _descriptorSetNormalsMesh, _descriptorSetColor, _descriptorSetPhong,
-      _descriptorSetPBR;
-  std::vector<std::shared_ptr<Buffer>> _uniformBufferCamera;
+  std::map<MaterialType, std::vector<std::shared_ptr<RenderGraph::DescriptorSetLayout>>> _descriptorSetLayout;
+  std::shared_ptr<RenderGraph::DescriptorSetLayout> _descriptorSetLayoutNormalsMesh;
+  std::shared_ptr<RenderGraph::DescriptorSetLayout> _descriptorSetLayoutDepth;
+  std::vector<std::vector<std::vector<std::shared_ptr<RenderGraph::DescriptorSet>>>> _descriptorSetCameraDepth;
+  std::vector<std::shared_ptr<RenderGraph::DescriptorSet>> _descriptorSetNormalsMesh, _descriptorSetColor,
+      _descriptorSetPhong, _descriptorSetPBR;
+  std::vector<std::shared_ptr<RenderGraph::Buffer>> _uniformBufferCamera;
 
-  std::vector<std::vector<std::vector<std::shared_ptr<Buffer>>>> _cameraUBODepth;
-  std::map<ShapeType, std::map<MaterialType, std::shared_ptr<PipelineGraphic>>> _pipeline, _pipelineWireframe;
-  std::shared_ptr<PipelineGraphic> _pipelineDirectional, _pipelinePoint, _pipelineNormalMesh, _pipelineTangentMesh;
+  std::vector<std::vector<std::vector<std::shared_ptr<RenderGraph::Buffer>>>> _cameraUBODepth;
+  std::map<ShapeType, std::map<MaterialType, std::shared_ptr<RenderGraph::Pipeline>>> _pipeline, _pipelineWireframe;
+  std::shared_ptr<RenderGraph::Pipeline> _pipelineDirectional, _pipelinePoint, _pipelineNormalMesh,
+      _pipelineTangentMesh;
   std::shared_ptr<Material> _material;
   std::shared_ptr<MaterialColor> _defaultMaterialColor;
-  std::shared_ptr<MaterialPhong> _defaultMaterialPhong;
-  std::shared_ptr<MaterialPBR> _defaultMaterialPBR;
   MaterialType _materialType = MaterialType::COLOR;
   DrawType _drawType = DrawType::FILL;
-  VkCullModeFlags _cullMode;
   bool _enableShadow = true;
   bool _enableLighting = true;
 
-  void _updateColorDescriptor();
-  void _updatePhongDescriptor();
-  void _updatePBRDescriptor();
+  void _updateColorDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
+  void _updatePhongDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
+  void _updatePBRDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
+  void _unregisterMaterialUpdates();
 
  public:
   Shape3D(ShapeType shapeType,
           std::shared_ptr<Mesh3D> mesh,
           VkCullModeFlags cullMode,
-          std::shared_ptr<CommandBuffer> commandBufferTransfer,
+          const RenderGraph::CommandBuffer* commandBufferTransfer,
           std::shared_ptr<GameState> gameState,
           std::shared_ptr<EngineState> engineState);
 
@@ -80,6 +92,9 @@ class Shape3D : public Drawable, public Shadowable {
 
   std::shared_ptr<Mesh3D> getMesh();
 
-  void draw(std::shared_ptr<CommandBuffer> commandBuffer) override;
-  void drawShadow(LightType lightType, int lightIndex, int face, std::shared_ptr<CommandBuffer> commandBuffer) override;
+  void draw(const RenderGraph::CommandBuffer* commandBuffer) override;
+  void drawShadow(LightType lightType,
+                  int lightIndex,
+                  int face,
+                  const RenderGraph::CommandBuffer* commandBuffer) override;
 };

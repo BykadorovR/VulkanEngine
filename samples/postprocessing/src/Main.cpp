@@ -31,7 +31,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Postprocessing");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -72,9 +71,8 @@ Main::Main() {
   _directionalLight->getCamera()->setPosition(glm::vec3(0.f, 20.f, 0.f));
 
   {
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-                       _core->getCommandBufferApplication());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
     _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
     _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
     _core->addDrawable(_cubeColoredLightVertical);
@@ -112,9 +110,8 @@ Main::Main() {
 
   {
     // cube colored
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)},
-                       _core->getCommandBufferApplication());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
     auto cubeColored = _core->createShape3D(ShapeType::CUBE, meshCube);
     cubeColored->setTranslate(glm::vec3(0.f, 3.f, -3.f));
 
@@ -142,7 +139,7 @@ Main::Main() {
                                     _core->getResourceManager()->getTextureZero());
   {
     // sphere PBR
-    auto meshSphere = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
+    auto meshSphere = std::make_shared<MeshSphere>(_core->getEngineState());
     auto sphereTexturedPBR = _core->createShape3D(ShapeType::SPHERE, meshSphere);
     sphereTexturedPBR->setMaterial(materialSpherePBR);
     sphereTexturedPBR->setTranslate(glm::vec3(-3.f, 3.f, -3.f));

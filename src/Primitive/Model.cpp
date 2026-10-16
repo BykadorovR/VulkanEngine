@@ -1,9 +1,16 @@
-#include "Primitive/Model.h"
+#include <cstring>
+#include <algorithm>
+#include <type_traits>
+#include <Jolt/Jolt.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <future>
 #include <unordered_map>
 #include <glm/gtx/norm.hpp>
+#include "Primitive/Model.h"
+
+import Shader;
 
 #undef far
 
@@ -175,7 +182,7 @@ bool Model3D::isDepthEnabled() { return _enableDepth; }
 
 Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
                  const std::vector<std::shared_ptr<MeshStatic3D>>& meshes,
-                 std::shared_ptr<CommandBuffer> commandBufferTransfer,
+                 const RenderGraph::CommandBuffer* commandBufferTransfer,
                  std::shared_ptr<GameState> gameState,
                  std::shared_ptr<EngineState> engineState) {
   setName("Model3D");
@@ -183,18 +190,73 @@ Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
   _nodes = nodes;
   _meshes = meshes;
   _gameState = gameState;
-  auto settings = _engineState->getSettings();
   _changedMaterial.resize(_engineState->getSettings()->getMaxFramesInFlight(), false);
+  _changedShadowDescriptors.resize(_engineState->getSettings()->getMaxFramesInFlight(), true);
+  _changedJointsDescriptors.resize(_engineState->getSettings()->getMaxFramesInFlight(), true);
   // default material if model doesn't have material at all, we still have to send data to shader
-  _defaultMaterialPhong = std::make_shared<MaterialPhong>(MaterialTarget::SIMPLE, commandBufferTransfer, engineState);
+  _defaultMaterialPhong = std::make_shared<MaterialPhong>(MaterialTarget::SIMPLE, engineState);
   _defaultMaterialPhong->setBaseColor({_gameState->getResourceManager()->getTextureOne()});
   _defaultMaterialPhong->setNormal({_gameState->getResourceManager()->getTextureZero()});
   _defaultMaterialPhong->setSpecular({_gameState->getResourceManager()->getTextureZero()});
-  _defaultMaterialPBR = std::make_shared<MaterialPBR>(MaterialTarget::SIMPLE, commandBufferTransfer, engineState);
-  _defaultMaterialColor = std::make_shared<MaterialColor>(MaterialTarget::SIMPLE, commandBufferTransfer, engineState);
+  _defaultMaterialColor = std::make_shared<MaterialColor>(MaterialTarget::SIMPLE, engineState);
   _materials = {_defaultMaterialPhong};
 
   _mesh = std::make_shared<MeshStatic3D>(engineState);
+  const auto vertexBinding = _mesh->getBindingDescription();
+  const auto normalVertexAttributes = _mesh->getAttributeDescriptions(
+      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
+       {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
+       {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}});
+  const VkPipelineVertexInputStateCreateInfo normalVertexInput{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = &vertexBinding,
+      .vertexAttributeDescriptionCount = static_cast<uint32_t>(normalVertexAttributes.size()),
+      .pVertexAttributeDescriptions = normalVertexAttributes.data(),
+  };
+  const auto tangentVertexAttributes = _mesh->getAttributeDescriptions(
+      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
+       {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)},
+       {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, tangent)}});
+  const VkPipelineVertexInputStateCreateInfo tangentVertexInput{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = &vertexBinding,
+      .vertexAttributeDescriptionCount = static_cast<uint32_t>(tangentVertexAttributes.size()),
+      .pVertexAttributeDescriptions = tangentVertexAttributes.data(),
+  };
+  const auto colorVertexAttributes = _mesh->getAttributeDescriptions(
+      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
+       {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)},
+       {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)},
+       {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointIndices)},
+       {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointWeights)}});
+  const VkPipelineVertexInputStateCreateInfo colorVertexInput{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = &vertexBinding,
+      .vertexAttributeDescriptionCount = static_cast<uint32_t>(colorVertexAttributes.size()),
+      .pVertexAttributeDescriptions = colorVertexAttributes.data(),
+  };
+  const auto litVertexAttributes = _mesh->getAttributeDescriptions();
+  const VkPipelineVertexInputStateCreateInfo litVertexInput{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = &vertexBinding,
+      .vertexAttributeDescriptionCount = static_cast<uint32_t>(litVertexAttributes.size()),
+      .pVertexAttributeDescriptions = litVertexAttributes.data(),
+  };
+  const auto shadowVertexAttributes = _mesh->getAttributeDescriptions(
+      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
+       {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointIndices)},
+       {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointWeights)}});
+  const VkPipelineVertexInputStateCreateInfo shadowVertexInput{
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .vertexBindingDescriptionCount = 1,
+      .pVertexBindingDescriptions = &vertexBinding,
+      .vertexAttributeDescriptionCount = static_cast<uint32_t>(shadowVertexAttributes.size()),
+      .pVertexAttributeDescriptions = shadowVertexAttributes.data(),
+  };
   _defaultAnimation = std::make_shared<Animation>(std::vector<std::shared_ptr<NodeGLTF>>{},
                                                   std::vector<std::shared_ptr<SkinGLTF>>{},
                                                   std::vector<std::shared_ptr<AnimationGLTF>>{}, engineState);
@@ -203,684 +265,464 @@ Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
   // initialize UBO
   _cameraUBOFull.resize(_engineState->getSettings()->getMaxFramesInFlight());
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++)
-    _cameraUBOFull[i] = std::make_shared<Buffer>(
+    _cameraUBOFull[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState);
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        *_engineState->getMemoryAllocator());
+
+  auto shaderColor = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
+  shaderColor->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                                 "shaders/model/modelColor_vertex.spv"));
+  shaderColor->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                                 "shaders/model/modelColor_fragment.spv"));
 
   // setup joints
   {
-    _descriptorSetLayoutJoints = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-    std::vector<VkDescriptorSetLayoutBinding> layoutJoints{{.binding = 0,
-                                                            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                            .descriptorCount = 1,
-                                                            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                                                            .pImmutableSamplers = nullptr}};
-    _descriptorSetLayoutJoints->createCustom(layoutJoints);
-
-    _updateJointsDescriptor();
+    _descriptorSetLayoutJoints = std::make_shared<RenderGraph::DescriptorSetLayout>(*_engineState->getDevice());
+    _descriptorSetLayoutJoints->createCustom(shaderColor->getDescriptorSetLayoutBindings().at(1));
+    _descriptorSetJoints.resize(_engineState->getSettings()->getMaxFramesInFlight());
   }
 
   // setup Normal
   {
-    _descriptorSetLayoutNormalsMesh = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-    std::vector<VkDescriptorSetLayoutBinding> layoutNormalsMesh{{.binding = 0,
-                                                                 .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                                 .descriptorCount = 1,
-                                                                 .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                                                                 .pImmutableSamplers = nullptr},
-                                                                {.binding = 1,
-                                                                 .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                                 .descriptorCount = 1,
-                                                                 .stageFlags = VK_SHADER_STAGE_GEOMETRY_BIT,
-                                                                 .pImmutableSamplers = nullptr}};
-    _descriptorSetLayoutNormalsMesh->createCustom(layoutNormalsMesh);
+    auto shader = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/shape/cubeNormal_vertex.spv"));
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/shape/cubeNormal_fragment.spv"));
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/shape/cubeNormal_geometry.spv"));
+    _descriptorSetLayoutNormalsMesh = std::make_shared<RenderGraph::DescriptorSetLayout>(*_engineState->getDevice());
+    _descriptorSetLayoutNormalsMesh->createCustom(shader->getDescriptorSetLayoutBindings().at(0));
 
     // TODO: we can just have one buffer and put it twice to descriptor
     _descriptorSetNormalsMesh.resize(engineState->getSettings()->getMaxFramesInFlight());
     for (int i = 0; i < engineState->getSettings()->getMaxFramesInFlight(); i++) {
-      _descriptorSetNormalsMesh[i] = std::make_shared<DescriptorSet>(_descriptorSetLayoutNormalsMesh, engineState);
-      std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoNormalsMesh = {
-          {0,
-           {VkDescriptorBufferInfo{.buffer = _cameraUBOFull[i]->getData(),
-                                   .offset = 0,
-                                   .range = _cameraUBOFull[i]->getSize()}}},
-          {1,
-           {VkDescriptorBufferInfo{.buffer = _cameraUBOFull[i]->getData(),
-                                   .offset = 0,
-                                   .range = _cameraUBOFull[i]->getSize()}}}};
-      _descriptorSetNormalsMesh[i]->createCustom(bufferInfoNormalsMesh, {});
+      _descriptorSetNormalsMesh[i] = std::make_shared<RenderGraph::DescriptorSet>(
+          std::vector<RenderGraph::DescriptorSetLayout*>{(_descriptorSetLayoutNormalsMesh).get()},
+          *engineState->getDescriptorPool(), *engineState->getDevice(), 0);
+      _descriptorSetNormalsMesh[i]->add({_cameraUBOFull[i].get()});
+      _descriptorSetNormalsMesh[i]->add({_cameraUBOFull[i].get()});
+      _descriptorSetNormalsMesh[i]->initialize(*commandBufferTransfer);
     }
 
-    // initialize Normal (per vertex)
-    auto shader = std::make_shared<Shader>(_engineState);
-    shader->add("shaders/shape/cubeNormal_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-    shader->add("shaders/shape/cubeNormal_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-    shader->add("shaders/shape/cubeNormal_geometry.spv", VK_SHADER_STAGE_GEOMETRY_BIT);
+    std::vector<RenderGraph::DescriptorSetLayout*> normalLayouts{_descriptorSetLayoutNormalsMesh.get()};
+    RenderGraph::PipelineGraphic normalPipelineGraphic;
+    normalPipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
+    normalPipelineGraphic.setDepthAttachment(_engineState->getSettings()->getDepthFormat());
+    normalPipelineGraphic.setDepthTest(true);
+    normalPipelineGraphic.setDepthWrite(true);
+    normalPipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
+    _pipelineNormalMesh = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
+    _pipelineNormalMesh->createGraphic(normalPipelineGraphic, shader->getShaderStageInfo(), normalLayouts, {},
+                                       normalVertexInput);
 
-    _pipelineNormalMesh = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
-                                                            _engineState->getDevice());
-    _pipelineNormalMesh->setDepthTest(true);
-    _pipelineNormalMesh->setDepthWrite(true);
-    _pipelineNormalMesh->setCullMode(VK_CULL_MODE_BACK_BIT);
-    _pipelineNormalMesh->createCustom(
-        shader, std::vector{std::pair{std::string("normal"), _descriptorSetLayoutNormalsMesh}}, {},
-        _mesh->getBindingDescription(),
-        _mesh->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                                                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
-                                                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}}),
-        RenderPassScenario::GRAPHIC);
-
-    // it's kind of pointless, but if material is set, double sided property can be handled
-    _pipelineNormalMeshCullOff = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
-                                                                   _engineState->getDevice());
-    _pipelineNormalMeshCullOff->setDepthTest(true);
-    _pipelineNormalMeshCullOff->setDepthWrite(true);
-    _pipelineNormalMeshCullOff->createCustom(
-        shader, std::vector{std::pair{std::string("normal"), _descriptorSetLayoutNormalsMesh}}, {},
-        _mesh->getBindingDescription(),
-        _mesh->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                                                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
-                                                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}}),
-        RenderPassScenario::GRAPHIC);
+    RenderGraph::PipelineGraphic normalCullOffPipelineGraphic;
+    normalCullOffPipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
+    normalCullOffPipelineGraphic.setDepthAttachment(_engineState->getSettings()->getDepthFormat());
+    normalCullOffPipelineGraphic.setDepthTest(true);
+    normalCullOffPipelineGraphic.setDepthWrite(true);
+    normalCullOffPipelineGraphic.setCullMode(VK_CULL_MODE_NONE);
+    _pipelineNormalMeshCullOff = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
+    _pipelineNormalMeshCullOff->createGraphic(normalCullOffPipelineGraphic, shader->getShaderStageInfo(), normalLayouts,
+                                              {}, normalVertexInput);
 
     // initialize Tangent (per vertex)
     {
-      auto shader = std::make_shared<Shader>(_engineState);
-      shader->add("shaders/shape/cubeTangent_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/shape/cubeNormal_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      shader->add("shaders/shape/cubeNormal_geometry.spv", VK_SHADER_STAGE_GEOMETRY_BIT);
+      auto tangentShader = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
+      tangentShader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                                       "shaders/shape/cubeTangent_vertex.spv"));
+      tangentShader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                                       "shaders/shape/cubeNormal_fragment.spv"));
+      tangentShader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                                       "shaders/shape/cubeNormal_geometry.spv"));
 
-      _pipelineTangentMesh = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
-                                                               _engineState->getDevice());
-      _pipelineTangentMesh->setDepthTest(true);
-      _pipelineTangentMesh->setDepthWrite(true);
-      _pipelineTangentMesh->setCullMode(VK_CULL_MODE_BACK_BIT);
-      _pipelineTangentMesh->createCustom(
-          shader, std::vector{std::pair{std::string("normal"), _descriptorSetLayoutNormalsMesh}}, {},
-          _mesh->getBindingDescription(),
-          _mesh->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                                                   {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
-                                                   {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}}),
-          RenderPassScenario::GRAPHIC);
+      RenderGraph::PipelineGraphic tangentPipelineGraphic;
+      tangentPipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
+      tangentPipelineGraphic.setDepthAttachment(_engineState->getSettings()->getDepthFormat());
+      tangentPipelineGraphic.setDepthTest(true);
+      tangentPipelineGraphic.setDepthWrite(true);
+      tangentPipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
+      _pipelineTangentMesh = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
+      _pipelineTangentMesh->createGraphic(tangentPipelineGraphic, tangentShader->getShaderStageInfo(), normalLayouts,
+                                          {}, tangentVertexInput);
 
-      // it's kind of pointless, but if material is set, double sided property can be handled
-      _pipelineTangentMeshCullOff = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
-                                                                      _engineState->getDevice());
-      _pipelineTangentMeshCullOff->setDepthTest(true);
-      _pipelineTangentMeshCullOff->setDepthWrite(true);
-      _pipelineTangentMeshCullOff->createCustom(
-          shader, std::vector{std::pair{std::string("normal"), _descriptorSetLayoutNormalsMesh}}, {},
-          _mesh->getBindingDescription(),
-          _mesh->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                                                   {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
-                                                   {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}}),
-          RenderPassScenario::GRAPHIC);
+      RenderGraph::PipelineGraphic tangentCullOffPipelineGraphic;
+      tangentCullOffPipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
+      tangentCullOffPipelineGraphic.setDepthAttachment(_engineState->getSettings()->getDepthFormat());
+      tangentCullOffPipelineGraphic.setDepthTest(true);
+      tangentCullOffPipelineGraphic.setDepthWrite(true);
+      tangentCullOffPipelineGraphic.setCullMode(VK_CULL_MODE_NONE);
+      _pipelineTangentMeshCullOff = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
+      _pipelineTangentMeshCullOff->createGraphic(
+          tangentCullOffPipelineGraphic, tangentShader->getShaderStageInfo(), normalLayouts, {}, tangentVertexInput);
     }
   }
 
   // setup color
   {
-    _descriptorSetLayoutColor = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-    std::vector<VkDescriptorSetLayoutBinding> layoutColor{{.binding = 0,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                                                           .pImmutableSamplers = nullptr},
-                                                          {.binding = 1,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                           .pImmutableSamplers = nullptr}};
-    _descriptorSetLayoutColor->createCustom(layoutColor);
+    _descriptorSetLayoutColor = std::make_shared<RenderGraph::DescriptorSetLayout>(*_engineState->getDevice());
+    _descriptorSetLayoutColor->createCustom(shaderColor->getDescriptorSetLayoutBindings().at(0));
 
     _descriptorSetColor.resize(_engineState->getSettings()->getMaxFramesInFlight());
     // phong is default, will form default descriptor only for it here
     // descriptors are formed in setMaterial
 
-    // initialize Color
-    {
-      auto shader = std::make_shared<Shader>(_engineState);
-      shader->add("shaders/model/modelColor_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/model/modelColor_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+    std::vector<RenderGraph::DescriptorSetLayout*> colorLayouts{_descriptorSetLayoutColor.get(),
+                                                                _descriptorSetLayoutJoints.get()};
+    RenderGraph::PipelineGraphic colorPipelineGraphic;
+    colorPipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
+    colorPipelineGraphic.setDepthAttachment(engineState->getSettings()->getDepthFormat());
+    colorPipelineGraphic.setDepthTest(true);
+    colorPipelineGraphic.setDepthWrite(true);
+    colorPipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
+    _pipeline[MaterialType::COLOR] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
+    _pipeline[MaterialType::COLOR]->createGraphic(
+        colorPipelineGraphic, shaderColor->getShaderStageInfo(), colorLayouts, {}, colorVertexInput);
 
-      _pipeline[MaterialType::COLOR] = std::make_shared<PipelineGraphic>(engineState->getRenderPassManager(),
-                                                                         engineState->getDevice());
-      std::vector<std::tuple<VkFormat, uint32_t>> attributes = {
-          {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-          {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)},
-          {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)},
-          {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointIndices)},
-          {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointWeights)}};
-      _pipeline[MaterialType::COLOR]->setDepthTest(true);
-      _pipeline[MaterialType::COLOR]->setDepthWrite(true);
-      _pipeline[MaterialType::COLOR]->setCullMode(VK_CULL_MODE_BACK_BIT);
-      _pipeline[MaterialType::COLOR]->createCustom(
-          shader, {{"color", _descriptorSetLayoutColor}, {"joints", _descriptorSetLayoutJoints}}, {},
-          _mesh->getBindingDescription(), _mesh->Mesh3D::getAttributeDescriptions(attributes),
-          RenderPassScenario::GRAPHIC);
+    RenderGraph::PipelineGraphic colorCullOffPipelineGraphic;
+    colorCullOffPipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
+    colorCullOffPipelineGraphic.setDepthAttachment(engineState->getSettings()->getDepthFormat());
+    colorCullOffPipelineGraphic.setDepthTest(true);
+    colorCullOffPipelineGraphic.setDepthWrite(true);
+    colorCullOffPipelineGraphic.setCullMode(VK_CULL_MODE_NONE);
+    _pipelineCullOff[MaterialType::COLOR] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
+    _pipelineCullOff[MaterialType::COLOR]->createGraphic(
+        colorCullOffPipelineGraphic, shaderColor->getShaderStageInfo(), colorLayouts, {}, colorVertexInput);
 
-      _pipelineCullOff[MaterialType::COLOR] = std::make_shared<PipelineGraphic>(engineState->getRenderPassManager(),
-                                                                                engineState->getDevice());
-      _pipelineCullOff[MaterialType::COLOR]->setDepthTest(true);
-      _pipelineCullOff[MaterialType::COLOR]->setDepthWrite(true);
-      _pipelineCullOff[MaterialType::COLOR]->createCustom(
-          shader, {{"color", _descriptorSetLayoutColor}, {"joints", _descriptorSetLayoutJoints}}, {},
-          _mesh->getBindingDescription(), _mesh->Mesh3D::getAttributeDescriptions(attributes),
-          RenderPassScenario::GRAPHIC);
-
-      _pipelineWireframe[MaterialType::COLOR] = std::make_shared<PipelineGraphic>(engineState->getRenderPassManager(),
-                                                                                  engineState->getDevice());
-      _pipelineWireframe[MaterialType::COLOR]->setDepthTest(true);
-      _pipelineWireframe[MaterialType::COLOR]->setDepthWrite(true);
-      _pipelineWireframe[MaterialType::COLOR]->setCullMode(VK_CULL_MODE_BACK_BIT);
-      _pipelineWireframe[MaterialType::COLOR]->setPolygonMode(VK_POLYGON_MODE_LINE);
-      _pipelineWireframe[MaterialType::COLOR]->createCustom(
-          shader, {{"color", _descriptorSetLayoutColor}, {"joints", _descriptorSetLayoutJoints}}, {},
-          _mesh->getBindingDescription(), _mesh->Mesh3D::getAttributeDescriptions(attributes),
-          RenderPassScenario::GRAPHIC);
-    }
+    RenderGraph::PipelineGraphic colorWireframePipelineGraphic;
+    colorWireframePipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
+    colorWireframePipelineGraphic.setDepthAttachment(engineState->getSettings()->getDepthFormat());
+    colorWireframePipelineGraphic.setDepthTest(true);
+    colorWireframePipelineGraphic.setDepthWrite(true);
+    colorWireframePipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
+#ifndef __ANDROID__
+    colorWireframePipelineGraphic.setPolygonMode(VK_POLYGON_MODE_LINE);
+#endif
+    _pipelineWireframe[MaterialType::COLOR] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
+    _pipelineWireframe[MaterialType::COLOR]->createGraphic(
+        colorWireframePipelineGraphic, shaderColor->getShaderStageInfo(), colorLayouts, {}, colorVertexInput);
   }
 
   // setup Phong
   {
-    _descriptorSetLayoutPhong = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-    std::vector<VkDescriptorSetLayoutBinding> layoutPhong{{.binding = 0,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                                                           .pImmutableSamplers = nullptr},
-                                                          {.binding = 1,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                           .pImmutableSamplers = nullptr},
-                                                          {.binding = 2,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                           .pImmutableSamplers = nullptr},
-                                                          {.binding = 3,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                           .pImmutableSamplers = nullptr},
-                                                          {.binding = 4,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                           .pImmutableSamplers = nullptr},
-                                                          {.binding = 5,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                           .pImmutableSamplers = nullptr}};
-    _descriptorSetLayoutPhong->createCustom(layoutPhong);
+    auto shader = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/model/modelPhong_vertex.spv"));
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/model/modelPhong_fragment.spv"));
+    _descriptorSetLayoutPhong = std::make_shared<RenderGraph::DescriptorSetLayout>(*_engineState->getDevice());
+    _descriptorSetLayoutPhong->createCustom(shader->getDescriptorSetLayoutBindings().at(0));
 
     _descriptorSetPhong.resize(_engineState->getSettings()->getMaxFramesInFlight());
     setMaterial({_defaultMaterialPhong});
 
-    auto shader = std::make_shared<Shader>(_engineState);
-    shader->add("shaders/model/modelPhong_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-    shader->add("shaders/model/modelPhong_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-
-    _pipeline[MaterialType::PHONG] = std::make_shared<PipelineGraphic>(engineState->getRenderPassManager(),
-                                                                       engineState->getDevice());
-    std::map<std::string, VkPushConstantRange> defaultPushConstants;
+    std::unordered_map<std::string, VkPushConstantRange> defaultPushConstants;
     defaultPushConstants["constants"] =
         VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(FragmentPush)};
-    _pipeline[MaterialType::PHONG]->setDepthTest(true);
-    _pipeline[MaterialType::PHONG]->setDepthWrite(true);
-    _pipeline[MaterialType::PHONG]->setCullMode(VK_CULL_MODE_BACK_BIT);
-    _pipeline[MaterialType::PHONG]->createCustom(shader,
-                                                 {{"phong", _descriptorSetLayoutPhong},
-                                                  {"joints", _descriptorSetLayoutJoints},
-                                                  {"globalPhong", _gameState->getLightManager()->getDSLGlobalPhong()}},
-                                                 defaultPushConstants, _mesh->getBindingDescription(),
-                                                 _mesh->getAttributeDescriptions(), RenderPassScenario::GRAPHIC);
+    const auto globalPhongLayout = _gameState->getLightManager()->getDSLGlobalPhong();
+    std::vector<RenderGraph::DescriptorSetLayout*> phongLayouts{
+        _descriptorSetLayoutPhong.get(), _descriptorSetLayoutJoints.get(), globalPhongLayout.get()};
+    RenderGraph::PipelineGraphic phongPipelineGraphic;
+    phongPipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
+    phongPipelineGraphic.setDepthAttachment(engineState->getSettings()->getDepthFormat());
+    phongPipelineGraphic.setDepthTest(true);
+    phongPipelineGraphic.setDepthWrite(true);
+    phongPipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
+    _pipeline[MaterialType::PHONG] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
+    _pipeline[MaterialType::PHONG]->createGraphic(phongPipelineGraphic, shader->getShaderStageInfo(), phongLayouts,
+                                                  defaultPushConstants, litVertexInput);
 
-    _pipelineCullOff[MaterialType::PHONG] = std::make_shared<PipelineGraphic>(engineState->getRenderPassManager(),
-                                                                              engineState->getDevice());
-    _pipelineCullOff[MaterialType::PHONG]->setDepthTest(true);
-    _pipelineCullOff[MaterialType::PHONG]->setDepthWrite(true);
-    _pipelineCullOff[MaterialType::PHONG]->createCustom(
-        shader,
-        {{"phong", _descriptorSetLayoutPhong},
-         {"joints", _descriptorSetLayoutJoints},
-         {"globalPhong", _gameState->getLightManager()->getDSLGlobalPhong()}},
-        defaultPushConstants, _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(),
-        RenderPassScenario::GRAPHIC);
+    RenderGraph::PipelineGraphic phongCullOffPipelineGraphic;
+    phongCullOffPipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
+    phongCullOffPipelineGraphic.setDepthAttachment(engineState->getSettings()->getDepthFormat());
+    phongCullOffPipelineGraphic.setDepthTest(true);
+    phongCullOffPipelineGraphic.setDepthWrite(true);
+    phongCullOffPipelineGraphic.setCullMode(VK_CULL_MODE_NONE);
+    _pipelineCullOff[MaterialType::PHONG] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
+    _pipelineCullOff[MaterialType::PHONG]->createGraphic(phongCullOffPipelineGraphic, shader->getShaderStageInfo(),
+                                                         phongLayouts, defaultPushConstants, litVertexInput);
 
-    _pipelineWireframe[MaterialType::PHONG] = std::make_shared<PipelineGraphic>(engineState->getRenderPassManager(),
-                                                                                engineState->getDevice());
-    _pipelineWireframe[MaterialType::PHONG]->setDepthTest(true);
-    _pipelineWireframe[MaterialType::PHONG]->setDepthWrite(true);
-    _pipelineWireframe[MaterialType::PHONG]->setCullMode(VK_CULL_MODE_BACK_BIT);
-    _pipelineWireframe[MaterialType::PHONG]->setPolygonMode(VK_POLYGON_MODE_LINE);
-    _pipelineWireframe[MaterialType::PHONG]->createCustom(
-        shader,
-        {{"phong", _descriptorSetLayoutPhong},
-         {"joints", _descriptorSetLayoutJoints},
-         {"globalPhong", _gameState->getLightManager()->getDSLGlobalPhong()}},
-        defaultPushConstants, _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(),
-        RenderPassScenario::GRAPHIC);
+    RenderGraph::PipelineGraphic phongWireframePipelineGraphic;
+    phongWireframePipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
+    phongWireframePipelineGraphic.setDepthAttachment(engineState->getSettings()->getDepthFormat());
+    phongWireframePipelineGraphic.setDepthTest(true);
+    phongWireframePipelineGraphic.setDepthWrite(true);
+    phongWireframePipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
+#ifndef __ANDROID__
+    phongWireframePipelineGraphic.setPolygonMode(VK_POLYGON_MODE_LINE);
+#endif
+    _pipelineWireframe[MaterialType::PHONG] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
+    _pipelineWireframe[MaterialType::PHONG]->createGraphic(phongWireframePipelineGraphic, shader->getShaderStageInfo(),
+                                                           phongLayouts, defaultPushConstants, litVertexInput);
   }
 
   // setup PBR
   {
-    _descriptorSetLayoutPBR = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-    std::vector<VkDescriptorSetLayoutBinding> layoutPBR{{.binding = 0,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 1,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 2,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 3,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 4,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 5,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 6,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 7,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 8,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 9,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 10,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr},
-                                                        {.binding = 11,
-                                                         .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                         .descriptorCount = 1,
-                                                         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-                                                         .pImmutableSamplers = nullptr}};
-
-    _descriptorSetLayoutPBR->createCustom(layoutPBR);
+    auto shader = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/model/modelPBR_vertex.spv"));
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/model/modelPBR_fragment.spv"));
+    _descriptorSetLayoutPBR = std::make_shared<RenderGraph::DescriptorSetLayout>(*_engineState->getDevice());
+    _descriptorSetLayoutPBR->createCustom(shader->getDescriptorSetLayoutBindings().at(0));
 
     _descriptorSetPBR.resize(_engineState->getSettings()->getMaxFramesInFlight());
     // phong is default, will form default descriptor only for it here
     // descriptors are formed in setMaterial
 
-    // initialize PBR
-    {
-      auto shader = std::make_shared<Shader>(_engineState);
-      shader->add("shaders/model/modelPBR_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/model/modelPBR_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
+    const std::unordered_map<std::string, VkPushConstantRange> defaultPushConstants{
+        {"constants", {.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(FragmentPush)}}};
+    const auto globalPBRLayout = _gameState->getLightManager()->getDSLGlobalPBR();
+    std::vector<RenderGraph::DescriptorSetLayout*> pbrLayouts{_descriptorSetLayoutPBR.get(),
+                                                              _descriptorSetLayoutJoints.get(), globalPBRLayout.get()};
+    RenderGraph::PipelineGraphic pbrPipelineGraphic;
+    pbrPipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
+    pbrPipelineGraphic.setDepthAttachment(engineState->getSettings()->getDepthFormat());
+    pbrPipelineGraphic.setDepthTest(true);
+    pbrPipelineGraphic.setDepthWrite(true);
+    pbrPipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
+    _pipeline[MaterialType::PBR] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
+    _pipeline[MaterialType::PBR]->createGraphic(pbrPipelineGraphic, shader->getShaderStageInfo(), pbrLayouts,
+                                                defaultPushConstants, litVertexInput);
 
-      _pipeline[MaterialType::PBR] = std::make_shared<PipelineGraphic>(engineState->getRenderPassManager(),
-                                                                       engineState->getDevice());
-      _pipeline[MaterialType::PBR]->setDepthTest(true);
-      _pipeline[MaterialType::PBR]->setDepthWrite(true);
-      _pipeline[MaterialType::PBR]->setCullMode(VK_CULL_MODE_BACK_BIT);
+    RenderGraph::PipelineGraphic pbrCullOffPipelineGraphic;
+    pbrCullOffPipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
+    pbrCullOffPipelineGraphic.setDepthAttachment(engineState->getSettings()->getDepthFormat());
+    pbrCullOffPipelineGraphic.setDepthTest(true);
+    pbrCullOffPipelineGraphic.setDepthWrite(true);
+    pbrCullOffPipelineGraphic.setCullMode(VK_CULL_MODE_NONE);
+    _pipelineCullOff[MaterialType::PBR] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
+    _pipelineCullOff[MaterialType::PBR]->createGraphic(pbrCullOffPipelineGraphic, shader->getShaderStageInfo(),
+                                                       pbrLayouts, defaultPushConstants, litVertexInput);
 
-      std::map<std::string, VkPushConstantRange> defaultPushConstants;
-      defaultPushConstants["constants"] =
-          VkPushConstantRange{.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT, .offset = 0, .size = sizeof(FragmentPush)};
-
-      _pipeline[MaterialType::PBR]->createCustom(shader,
-                                                 {{"pbr", _descriptorSetLayoutPBR},
-                                                  {"joints", _descriptorSetLayoutJoints},
-                                                  {"globalPBR", _gameState->getLightManager()->getDSLGlobalPBR()}},
-                                                 defaultPushConstants, _mesh->getBindingDescription(),
-                                                 _mesh->getAttributeDescriptions(), RenderPassScenario::GRAPHIC);
-
-      _pipelineCullOff[MaterialType::PBR] = std::make_shared<PipelineGraphic>(engineState->getRenderPassManager(),
-                                                                              engineState->getDevice());
-      _pipelineCullOff[MaterialType::PBR]->setDepthTest(true);
-      _pipelineCullOff[MaterialType::PBR]->setDepthWrite(true);
-      _pipelineCullOff[MaterialType::PBR]->createCustom(
-          shader,
-          {{"pbr", _descriptorSetLayoutPBR},
-           {"joints", _descriptorSetLayoutJoints},
-           {"globalPBR", _gameState->getLightManager()->getDSLGlobalPBR()}},
-          defaultPushConstants, _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(),
-          RenderPassScenario::GRAPHIC);
-
-      _pipelineWireframe[MaterialType::PBR] = std::make_shared<PipelineGraphic>(engineState->getRenderPassManager(),
-                                                                                engineState->getDevice());
-      _pipelineWireframe[MaterialType::PBR]->setDepthTest(true);
-      _pipelineWireframe[MaterialType::PBR]->setDepthWrite(true);
-      _pipelineWireframe[MaterialType::PBR]->setPolygonMode(VK_POLYGON_MODE_LINE);
-      _pipelineWireframe[MaterialType::PBR]->createCustom(
-          shader,
-          {{"pbr", _descriptorSetLayoutPBR},
-           {"joints", _descriptorSetLayoutJoints},
-           {"globalPBR", _gameState->getLightManager()->getDSLGlobalPBR()}},
-          defaultPushConstants, _mesh->getBindingDescription(), _mesh->getAttributeDescriptions(),
-          RenderPassScenario::GRAPHIC);
-    }
+    RenderGraph::PipelineGraphic pbrWireframePipelineGraphic;
+    pbrWireframePipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
+    pbrWireframePipelineGraphic.setDepthAttachment(engineState->getSettings()->getDepthFormat());
+    pbrWireframePipelineGraphic.setDepthTest(true);
+    pbrWireframePipelineGraphic.setDepthWrite(true);
+#ifndef __ANDROID__
+    pbrWireframePipelineGraphic.setPolygonMode(VK_POLYGON_MODE_LINE);
+#endif
+    _pipelineWireframe[MaterialType::PBR] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
+    _pipelineWireframe[MaterialType::PBR]->createGraphic(pbrWireframePipelineGraphic, shader->getShaderStageInfo(),
+                                                         pbrLayouts, defaultPushConstants, litVertexInput);
   }
 
-  auto cameraLayout = std::make_shared<DescriptorSetLayout>(engineState->getDevice());
-  VkDescriptorSetLayoutBinding layoutBinding = {.binding = 0,
-                                                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                .descriptorCount = 1,
-                                                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                                                .pImmutableSamplers = nullptr};
-  cameraLayout->createCustom({layoutBinding});
+  auto shaderDirectional = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
+  shaderDirectional->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                                       "shaders/model/modelDepth_vertex.spv"));
+  shaderDirectional->add(_engineState->getFilesystem()->readFile<char>(
+      _engineState->getSettings()->getShadersPath() + "shaders/model/modelDepthDirectional_fragment.spv"));
+  _descriptorSetLayoutDepth = std::make_shared<RenderGraph::DescriptorSetLayout>(*engineState->getDevice());
+  _descriptorSetLayoutDepth->createCustom(shaderDirectional->getDescriptorSetLayoutBindings().at(0));
 
   _cameraUBODepth.resize(_engineState->getSettings()->getMaxFramesInFlight());
   _descriptorSetCameraDepth.resize(_engineState->getSettings()->getMaxFramesInFlight());
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
     for (int l = 0; l < _engineState->getSettings()->getMaxDirectionalLights(); l++) {
-      auto buffer = std::make_shared<Buffer>(sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                                             _engineState);
+      auto buffer = std::make_shared<RenderGraph::Buffer>(
+          sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+          *_engineState->getMemoryAllocator());
       _cameraUBODepth[i].push_back({buffer});
 
-      auto cameraSet = std::make_shared<DescriptorSet>(cameraLayout, _engineState);
-      std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfo = {
-          {0, {{.buffer = buffer->getData(), .offset = 0, .range = buffer->getSize()}}}};
-      cameraSet->createCustom(bufferInfo, {});
-      _descriptorSetCameraDepth[i].push_back({cameraSet});
+      _descriptorSetCameraDepth[i].push_back({nullptr});
     }
     for (int l = 0; l < _engineState->getSettings()->getMaxPointLights(); l++) {
-      std::vector<std::shared_ptr<Buffer>> facesBuffer(6);
-      std::vector<std::shared_ptr<DescriptorSet>> facesSet(6);
+      std::vector<std::shared_ptr<RenderGraph::Buffer>> facesBuffer(6);
       for (int f = 0; f < 6; f++) {
-        facesBuffer[f] = std::make_shared<Buffer>(
+        facesBuffer[f] = std::make_shared<RenderGraph::Buffer>(
             sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState);
-        facesSet[f] = std::make_shared<DescriptorSet>(cameraLayout, _engineState);
-        std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfo = {
-            {0, {{.buffer = facesBuffer[f]->getData(), .offset = 0, .range = facesBuffer[f]->getSize()}}}};
-        facesSet[f]->createCustom(bufferInfo, {});
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+            *_engineState->getMemoryAllocator());
       }
       _cameraUBODepth[i].push_back(facesBuffer);
-      _descriptorSetCameraDepth[i].push_back(facesSet);
+      _descriptorSetCameraDepth[i].push_back(std::vector<std::shared_ptr<RenderGraph::DescriptorSet>>(6));
     }
   }
 
   // initialize depth directional
   {
-    auto shader = std::make_shared<Shader>(_engineState);
-    shader->add("shaders/model/modelDepth_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-    shader->add("shaders/model/modelDepthDirectional_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-    _pipelineDirectional = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(),
-                                                             _engineState->getDevice());
-    _pipelineDirectional->setDepthBias(true);
-    _pipelineDirectional->setColorBlendOp(VK_BLEND_OP_MIN);
-    _pipelineDirectional->createCustom(
-        shader, {{"depth", cameraLayout}, {"joints", _descriptorSetLayoutJoints}}, {}, _mesh->getBindingDescription(),
-        _mesh->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                                                 {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointIndices)},
-                                                 {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointWeights)}}),
-        RenderPassScenario::SHADOW);
+    RenderGraph::PipelineGraphic pipelineGraphic;
+    pipelineGraphic.setColorAttachments({_engineState->getSettings()->getShadowMapFormat()});
+    pipelineGraphic.setDepthAttachment(std::nullopt);
+    pipelineGraphic.setDepthBias(true);
+    pipelineGraphic.setColorBlendOp(VK_BLEND_OP_MIN);
+    std::vector<RenderGraph::DescriptorSetLayout*> descriptorSetLayouts{_descriptorSetLayoutDepth.get(),
+                                                                        _descriptorSetLayoutJoints.get()};
+    _pipelineDirectional = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
+    _pipelineDirectional->createGraphic(
+        pipelineGraphic, shaderDirectional->getShaderStageInfo(), descriptorSetLayouts, {}, shadowVertexInput);
   }
 
   // initialize depth point
   {
-    auto shader = std::make_shared<Shader>(_engineState);
-    shader->add("shaders/model/modelDepth_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-    shader->add("shaders/model/modelDepthPoint_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-    _pipelinePoint = std::make_shared<PipelineGraphic>(_engineState->getRenderPassManager(), _engineState->getDevice());
-    std::map<std::string, VkPushConstantRange> defaultPushConstants;
+    auto shader = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/model/modelDepth_vertex.spv"));
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/model/modelDepthPoint_fragment.spv"));
+    std::unordered_map<std::string, VkPushConstantRange> defaultPushConstants;
     defaultPushConstants["constants"] = VkPushConstantRange{
         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
         .offset = 0,
         .size = sizeof(FragmentPointLightPushDepth),
     };
 
-    _pipelinePoint->setDepthBias(true);
-    _pipelinePoint->setColorBlendOp(VK_BLEND_OP_MIN);
-    _pipelinePoint->createCustom(
-        shader, {{"depth", cameraLayout}, {"joints", _descriptorSetLayoutJoints}}, defaultPushConstants,
-        _mesh->getBindingDescription(),
-        _mesh->Mesh3D::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                                                 {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointIndices)},
-                                                 {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, jointWeights)}}),
-        RenderPassScenario::SHADOW);
+    RenderGraph::PipelineGraphic pipelineGraphic;
+    pipelineGraphic.setColorAttachments({_engineState->getSettings()->getShadowMapFormat()});
+    pipelineGraphic.setDepthAttachment(std::nullopt);
+    pipelineGraphic.setDepthBias(true);
+    pipelineGraphic.setColorBlendOp(VK_BLEND_OP_MIN);
+    std::vector<RenderGraph::DescriptorSetLayout*> descriptorSetLayouts{_descriptorSetLayoutDepth.get(),
+                                                                        _descriptorSetLayoutJoints.get()};
+    _pipelinePoint = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
+    _pipelinePoint->createGraphic(pipelineGraphic, shader->getShaderStageInfo(), descriptorSetLayouts,
+                                  defaultPushConstants, shadowVertexInput);
   }
 }
 
-void Model3D::_updateJointsDescriptor() {
-  _descriptorSetJoints.resize(_engineState->getSettings()->getMaxFramesInFlight());
-  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    _descriptorSetJoints[i].resize(_animation->getGlobalMatricesBuffer().size());
-    for (int skin = 0; skin < _animation->getGlobalMatricesBuffer().size(); skin++) {
-      _descriptorSetJoints[i][skin] = std::make_shared<DescriptorSet>(_descriptorSetLayoutJoints, _engineState);
-
-      std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfo = {
-          {0,
-           {{.buffer = _animation->getGlobalMatricesBuffer()[skin][i]->getData(),
-             .offset = 0,
-             .range = _animation->getGlobalMatricesBuffer()[skin][i]->getSize()}}}};
-      _descriptorSetJoints[i][skin]->createCustom(bufferInfo, {});
+void Model3D::_updateDepthDescriptors(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) {
+  const std::vector<RenderGraph::DescriptorSetLayout*> layouts{_descriptorSetLayoutDepth.get()};
+  for (int light = 0; light < _descriptorSetCameraDepth[currentFrame].size(); ++light) {
+    for (int face = 0; face < _descriptorSetCameraDepth[currentFrame][light].size(); ++face) {
+      auto descriptor = std::make_shared<RenderGraph::DescriptorSet>(layouts, *_engineState->getDescriptorPool(),
+                                                                     *_engineState->getDevice());
+      descriptor->add({_cameraUBODepth[currentFrame][light][face].get()});
+      descriptor->initialize(commandBuffer);
+      _descriptorSetCameraDepth[currentFrame][light][face] = std::move(descriptor);
     }
   }
 }
 
-void Model3D::_updatePBRDescriptor() {
-  int currentFrame = _engineState->getFrameInFlight();
-  for (int i = 0; i < _materials.size(); i++) {
-    std::shared_ptr<MaterialPBR> material = std::dynamic_pointer_cast<MaterialPBR>(_materials[i]);
-    std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor = {
-        {0,
-         {{.buffer = _cameraUBOFull[currentFrame]->getData(),
-           .offset = 0,
-           .range = _cameraUBOFull[currentFrame]->getSize()}}},
-        {10,
-         {{.buffer = material->getBufferAlphaCutoff()[currentFrame]->getData(),
-           .offset = 0,
-           .range = material->getBufferAlphaCutoff()[currentFrame]->getSize()}}},
-        {11,
-         {{.buffer = material->getBufferCoefficients()[currentFrame]->getData(),
-           .offset = 0,
-           .range = material->getBufferCoefficients()[currentFrame]->getSize()}}}};
-
-    std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
-        {1,
-         {{.sampler = material->getBaseColor()[0]->getSampler()->getSampler(),
-           .imageView = material->getBaseColor()[0]->getImageView()->getImageView(),
-           .imageLayout = material->getBaseColor()[0]->getImageView()->getImage()->getImageLayout()}}},
-        {2,
-         {{.sampler = material->getNormal()[0]->getSampler()->getSampler(),
-           .imageView = material->getNormal()[0]->getImageView()->getImageView(),
-           .imageLayout = material->getNormal()[0]->getImageView()->getImage()->getImageLayout()}}},
-        {3,
-         {{.sampler = material->getMetallic()[0]->getSampler()->getSampler(),
-           .imageView = material->getMetallic()[0]->getImageView()->getImageView(),
-           .imageLayout = material->getMetallic()[0]->getImageView()->getImage()->getImageLayout()}}},
-        {4,
-         {{.sampler = material->getRoughness()[0]->getSampler()->getSampler(),
-           .imageView = material->getRoughness()[0]->getImageView()->getImageView(),
-           .imageLayout = material->getRoughness()[0]->getImageView()->getImage()->getImageLayout()}}},
-        {5,
-         {{.sampler = material->getOccluded()[0]->getSampler()->getSampler(),
-           .imageView = material->getOccluded()[0]->getImageView()->getImageView(),
-           .imageLayout = material->getOccluded()[0]->getImageView()->getImage()->getImageLayout()}}},
-        {6,
-         {{.sampler = material->getEmissive()[0]->getSampler()->getSampler(),
-           .imageView = material->getEmissive()[0]->getImageView()->getImageView(),
-           .imageLayout = material->getEmissive()[0]->getImageView()->getImage()->getImageLayout()}}},
-        {7,
-         {{.sampler = material->getDiffuseIBL()->getSampler()->getSampler(),
-           .imageView = material->getDiffuseIBL()->getImageView()->getImageView(),
-           .imageLayout = material->getDiffuseIBL()->getImageView()->getImage()->getImageLayout()}}},
-        {8,
-         {{.sampler = material->getSpecularIBL()->getSampler()->getSampler(),
-           .imageView = material->getSpecularIBL()->getImageView()->getImageView(),
-           .imageLayout = material->getSpecularIBL()->getImageView()->getImage()->getImageLayout()}}},
-        {9,
-         {{.sampler = material->getSpecularBRDF()->getSampler()->getSampler(),
-           .imageView = material->getSpecularBRDF()->getImageView()->getImageView(),
-           .imageLayout = material->getSpecularBRDF()->getImageView()->getImage()->getImageLayout()}}}};
-
-    _descriptorSetPBR[currentFrame][i]->createCustom(bufferInfoColor, textureInfoColor);
+void Model3D::_updateJointsDescriptor(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) {
+  const std::vector<RenderGraph::DescriptorSetLayout*> layouts{_descriptorSetLayoutJoints.get()};
+  const auto& jointBuffers = _animation->getGlobalMatricesBuffer();
+  _descriptorSetJoints[currentFrame].resize(jointBuffers.size());
+  for (int skin = 0; skin < jointBuffers.size(); ++skin) {
+    auto descriptor = std::make_shared<RenderGraph::DescriptorSet>(layouts, *_engineState->getDescriptorPool(),
+                                                                   *_engineState->getDevice(), 1);
+    descriptor->add({jointBuffers[skin][currentFrame].get()});
+    descriptor->initialize(commandBuffer);
+    _descriptorSetJoints[currentFrame][skin] = std::move(descriptor);
   }
 }
 
-void Model3D::_updatePhongDescriptor() {
+void Model3D::_updatePBRDescriptor(const RenderGraph::CommandBuffer& commandBuffer) {
   int currentFrame = _engineState->getFrameInFlight();
+  const std::vector<RenderGraph::DescriptorSetLayout*> layouts{_descriptorSetLayoutPBR.get()};
+  _descriptorSetPBR[currentFrame].resize(_materials.size());
   for (int i = 0; i < _materials.size(); i++) {
-    std::shared_ptr<MaterialPhong> material = std::dynamic_pointer_cast<MaterialPhong>(_materials[i]);
-    std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor = {
-        {0,
-         {{.buffer = _cameraUBOFull[currentFrame]->getData(),
-           .offset = 0,
-           .range = _cameraUBOFull[currentFrame]->getSize()}}},
-        {4,
-         {{.buffer = material->getBufferAlphaCutoff()[currentFrame]->getData(),
-           .offset = 0,
-           .range = material->getBufferAlphaCutoff()[currentFrame]->getSize()}}},
-        {5,
-         {{.buffer = material->getBufferCoefficients()[currentFrame]->getData(),
-           .offset = 0,
-           .range = material->getBufferCoefficients()[currentFrame]->getSize()}}}};
-    std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
-        {1,
-         {{.sampler = material->getBaseColor()[0]->getSampler()->getSampler(),
-           .imageView = material->getBaseColor()[0]->getImageView()->getImageView(),
-           .imageLayout = material->getBaseColor()[0]->getImageView()->getImage()->getImageLayout()}}},
-        {2,
-         {{.sampler = material->getNormal()[0]->getSampler()->getSampler(),
-           .imageView = material->getNormal()[0]->getImageView()->getImageView(),
-           .imageLayout = material->getNormal()[0]->getImageView()->getImage()->getImageLayout()}}},
-        {3,
-         {{.sampler = material->getSpecular()[0]->getSampler()->getSampler(),
-           .imageView = material->getSpecular()[0]->getImageView()->getImageView(),
-           .imageLayout = material->getSpecular()[0]->getImageView()->getImage()->getImageLayout()}}}};
-
-    _descriptorSetPhong[currentFrame][i]->createCustom(bufferInfoColor, textureInfoColor);
+    auto material = std::dynamic_pointer_cast<MaterialPBR>(_materials[i]);
+    material->unregisterUpdate(_descriptorSetPBR[currentFrame][i]);
+    auto descriptor = std::make_shared<RenderGraph::DescriptorSet>(layouts, *_engineState->getDescriptorPool(),
+                                                                   *_engineState->getDevice());
+    descriptor->add({_cameraUBOFull[currentFrame].get()});
+    descriptor->add({material->getBaseColor()[0].get()});
+    descriptor->add({material->getNormal()[0].get()});
+    descriptor->add({material->getMetallic()[0].get()});
+    descriptor->add({material->getRoughness()[0].get()});
+    descriptor->add({material->getOccluded()[0].get()});
+    descriptor->add({material->getEmissive()[0].get()});
+    descriptor->add({material->getDiffuseIBL().get()});
+    descriptor->add({material->getSpecularIBL().get()});
+    descriptor->add({material->getSpecularBRDF().get()});
+    descriptor->add({material->getBufferAlphaCutoff()[currentFrame].get()});
+    descriptor->add({material->getBufferCoefficients()[currentFrame].get()});
+    descriptor->initialize(commandBuffer);
+    material->registerUpdate(descriptor, {.frameInFlight = currentFrame,
+                                          .materialInfo = {{MaterialTexture::COLOR, 1},
+                                                           {MaterialTexture::NORMAL, 2},
+                                                           {MaterialTexture::METALLIC, 3},
+                                                           {MaterialTexture::ROUGHNESS, 4},
+                                                           {MaterialTexture::OCCLUSION, 5},
+                                                           {MaterialTexture::EMISSIVE, 6},
+                                                           {MaterialTexture::IBL_DIFFUSE, 7},
+                                                           {MaterialTexture::IBL_SPECULAR, 8},
+                                                           {MaterialTexture::BRDF_SPECULAR, 9}}});
+    _descriptorSetPBR[currentFrame][i] = std::move(descriptor);
   }
 }
 
-void Model3D::_updateColorDescriptor() {
+void Model3D::_updatePhongDescriptor(const RenderGraph::CommandBuffer& commandBuffer) {
   int currentFrame = _engineState->getFrameInFlight();
+  const std::vector<RenderGraph::DescriptorSetLayout*> layouts{_descriptorSetLayoutPhong.get()};
+  _descriptorSetPhong[currentFrame].resize(_materials.size());
   for (int i = 0; i < _materials.size(); i++) {
-    std::shared_ptr<MaterialColor> material = std::dynamic_pointer_cast<MaterialColor>(_materials[i]);
-    std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor = {
-        {0,
-         {{.buffer = _cameraUBOFull[currentFrame]->getData(),
-           .offset = 0,
-           .range = _cameraUBOFull[currentFrame]->getSize()}}}};
+    auto material = std::dynamic_pointer_cast<MaterialPhong>(_materials[i]);
+    material->unregisterUpdate(_descriptorSetPhong[currentFrame][i]);
+    auto descriptor = std::make_shared<RenderGraph::DescriptorSet>(layouts, *_engineState->getDescriptorPool(),
+                                                                   *_engineState->getDevice());
+    descriptor->add({_cameraUBOFull[currentFrame].get()});
+    descriptor->add({material->getBaseColor()[0].get()});
+    descriptor->add({material->getNormal()[0].get()});
+    descriptor->add({material->getSpecular()[0].get()});
+    descriptor->add({material->getBufferAlphaCutoff()[currentFrame].get()});
+    descriptor->add({material->getBufferCoefficients()[currentFrame].get()});
+    descriptor->initialize(commandBuffer);
+    material->registerUpdate(
+        descriptor,
+        {.frameInFlight = currentFrame,
+         .materialInfo = {{MaterialTexture::COLOR, 1}, {MaterialTexture::NORMAL, 2}, {MaterialTexture::SPECULAR, 3}}});
+    _descriptorSetPhong[currentFrame][i] = std::move(descriptor);
+  }
+}
+
+void Model3D::_updateColorDescriptor(const RenderGraph::CommandBuffer& commandBuffer) {
+  int currentFrame = _engineState->getFrameInFlight();
+  const std::vector<RenderGraph::DescriptorSetLayout*> layouts{_descriptorSetLayoutColor.get()};
+  _descriptorSetColor[currentFrame].resize(_materials.size());
+  for (int i = 0; i < _materials.size(); i++) {
+    auto material = std::dynamic_pointer_cast<MaterialColor>(_materials[i]);
     auto texture = _defaultMaterialColor->getBaseColor();
-    if (material->getBaseColor().size() > 0) texture = material->getBaseColor();
-    std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
-        {1,
-         {{.sampler = texture[0]->getSampler()->getSampler(),
-           .imageView = texture[0]->getImageView()->getImageView(),
-           .imageLayout = texture[0]->getImageView()->getImage()->getImageLayout()}}}};
-    _descriptorSetColor[currentFrame][i]->createCustom(bufferInfoColor, textureInfoColor);
+    if (!material->getBaseColor().empty()) texture = material->getBaseColor();
+    material->unregisterUpdate(_descriptorSetColor[currentFrame][i]);
+    auto descriptor = std::make_shared<RenderGraph::DescriptorSet>(layouts, *_engineState->getDescriptorPool(),
+                                                                   *_engineState->getDevice());
+    descriptor->add({_cameraUBOFull[currentFrame].get()});
+    descriptor->add({texture[0].get()});
+    descriptor->initialize(commandBuffer);
+    material->registerUpdate(descriptor,
+                             {.frameInFlight = currentFrame, .materialInfo = {{MaterialTexture::COLOR, 1}}});
+    _descriptorSetColor[currentFrame][i] = std::move(descriptor);
+  }
+}
+
+void Model3D::_unregisterMaterialDescriptors() {
+  for (int frame = 0; frame < _descriptorSetColor.size(); ++frame) {
+    for (int materialIndex = 0; materialIndex < _materials.size(); ++materialIndex) {
+      const auto& material = _materials[materialIndex];
+      const auto unregister = [&](const auto& descriptors) {
+        if (frame >= descriptors.size() || materialIndex >= descriptors[frame].size()) return;
+        material->unregisterUpdate(descriptors[frame][materialIndex]);
+      };
+      unregister(_descriptorSetColor);
+      unregister(_descriptorSetPhong);
+      unregister(_descriptorSetPBR);
+    }
   }
 }
 
 void Model3D::setMaterial(std::vector<std::shared_ptr<MaterialColor>> materials) {
-  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    for (int material = 0; material < materials.size(); material++) {
-      if (material < _materials.size() && material < _descriptorSetColor[i].size())
-        _materials[material]->unregisterUpdate(_descriptorSetColor[i][material]);
-
-      if (_descriptorSetColor[i].size() <= material)
-        _descriptorSetColor[i].push_back(std::make_shared<DescriptorSet>(
-
-            _descriptorSetLayoutColor, _engineState));
-      materials[material]->registerUpdate(_descriptorSetColor[i][material],
-                                          {._frameInFlight = i, ._materialInfo = {{MaterialTexture::COLOR, 1}}});
-    }
-  }
   _materialType = MaterialType::COLOR;
-
-  _materials.clear();
-  for (auto& material : materials) {
-    _materials.push_back(material);
-  }
-  for (int i = 0; i < _changedMaterial.size(); i++) {
-    _changedMaterial[i] = true;
-  }
+  _unregisterMaterialDescriptors();
+  _materials.assign(materials.begin(), materials.end());
+  std::fill(_changedMaterial.begin(), _changedMaterial.end(), true);
 }
 
 void Model3D::setMaterial(std::vector<std::shared_ptr<MaterialPhong>> materials) {
-  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    for (int material = 0; material < materials.size(); material++) {
-      if (material < _materials.size() && material < _descriptorSetPhong[i].size())
-        _materials[material]->unregisterUpdate(_descriptorSetPhong[i][material]);
-
-      if (_descriptorSetPhong[i].size() <= material)
-        _descriptorSetPhong[i].push_back(std::make_shared<DescriptorSet>(
-
-            _descriptorSetLayoutPhong, _engineState));
-      materials[material]->registerUpdate(_descriptorSetPhong[i][material],
-                                          {._frameInFlight = i,
-                                           ._materialInfo = {{MaterialTexture::COLOR, 1},
-                                                             {MaterialTexture::NORMAL, 2},
-                                                             {MaterialTexture::SPECULAR, 3}}});
-    }
-  }
   _materialType = MaterialType::PHONG;
-
-  _materials.clear();
-  for (auto& material : materials) {
-    _materials.push_back(material);
-  }
-  for (int i = 0; i < _changedMaterial.size(); i++) {
-    _changedMaterial[i] = true;
-  }
+  _unregisterMaterialDescriptors();
+  _materials.assign(materials.begin(), materials.end());
+  std::fill(_changedMaterial.begin(), _changedMaterial.end(), true);
 }
 
 void Model3D::setMaterial(std::vector<std::shared_ptr<MaterialPBR>> materials) {
-  for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    for (int material = 0; material < materials.size(); material++) {
-      if (material < _materials.size() && material < _descriptorSetPBR[i].size())
-        _materials[material]->unregisterUpdate(_descriptorSetPBR[i][material]);
-
-      if (_descriptorSetPBR[i].size() <= material)
-        _descriptorSetPBR[i].push_back(std::make_shared<DescriptorSet>(_descriptorSetLayoutPBR, _engineState));
-      materials[material]->registerUpdate(_descriptorSetPBR[i][material],
-                                          {._frameInFlight = i,
-                                           ._materialInfo = {{MaterialTexture::COLOR, 1},
-                                                             {MaterialTexture::NORMAL, 2},
-                                                             {MaterialTexture::METALLIC, 3},
-                                                             {MaterialTexture::ROUGHNESS, 4},
-                                                             {MaterialTexture::OCCLUSION, 5},
-                                                             {MaterialTexture::EMISSIVE, 6},
-                                                             {MaterialTexture::IBL_DIFFUSE, 7},
-                                                             {MaterialTexture::IBL_SPECULAR, 8},
-                                                             {MaterialTexture::BRDF_SPECULAR, 9}}});
-    }
-  }
   _materialType = MaterialType::PBR;
-  _materials.clear();
-  for (auto& material : materials) {
-    _materials.push_back(material);
-  }
-  for (int i = 0; i < _changedMaterial.size(); i++) {
-    _changedMaterial[i] = true;
-  }
+  _unregisterMaterialDescriptors();
+  _materials.assign(materials.begin(), materials.end());
+  std::fill(_changedMaterial.begin(), _changedMaterial.end(), true);
 }
 
 void Model3D::setDrawType(DrawType drawType) { _drawType = drawType; }
@@ -917,67 +759,37 @@ std::shared_ptr<AABB> Model3D::getAABBJoints() {
 
 void Model3D::setAnimation(std::shared_ptr<Animation> animation) {
   _animation = animation;
-  _updateJointsDescriptor();
+  for (auto& descriptors : _descriptorSetJoints) descriptors.clear();
+  std::fill(_changedMaterial.begin(), _changedMaterial.end(), true);
+  std::fill(_changedShadowDescriptors.begin(), _changedShadowDescriptors.end(), true);
+  std::fill(_changedJointsDescriptors.begin(), _changedJointsDescriptors.end(), true);
 }
 
-void Model3D::_drawNode(std::shared_ptr<CommandBuffer> commandBuffer,
-                        std::shared_ptr<Pipeline> pipeline,
-                        std::shared_ptr<Pipeline> pipelineCullOff,
-                        std::shared_ptr<DescriptorSet> cameraDS,
-                        std::shared_ptr<Buffer> cameraUBO,
+void Model3D::_drawNode(const RenderGraph::CommandBuffer* commandBuffer,
+                        std::shared_ptr<RenderGraph::Pipeline> pipeline,
+                        std::shared_ptr<RenderGraph::Pipeline> pipelineCullOff,
+                        std::shared_ptr<RenderGraph::DescriptorSet> cameraDS,
+                        std::shared_ptr<RenderGraph::Buffer> cameraUBO,
                         glm::mat4 view,
                         glm::mat4 projection,
                         std::shared_ptr<NodeGLTF> node) {
   int currentFrame = _engineState->getFrameInFlight();
   if (node->mesh >= 0 && _meshes[node->mesh]->getPrimitives().size() > 0) {
-    VkBuffer vertexBuffers[] = {_meshes[node->mesh]->getVertexBuffer()->getBuffer()->getData()};
+    VkBuffer vertexBuffers[] = {_meshes[node->mesh]->getVertexBuffer()->getBuffer()->getBuffer()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer->getCommandBuffer(), 0, 1, vertexBuffers, offsets);
     vkCmdBindIndexBuffer(commandBuffer->getCommandBuffer(),
-                         _meshes[node->mesh]->getIndexBuffer()->getBuffer()->getData(), 0, VK_INDEX_TYPE_UINT32);
+                         _meshes[node->mesh]->getIndexBuffer()->getBuffer()->getBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
     // pass this matrix to uniforms
     BufferMVP cameraMVP{.model = getModel() * _meshes[node->mesh]->getGlobalMatrix(),
                         .view = view,
                         .projection = projection};
 
-    cameraUBO->setData(&cameraMVP);
+    std::memcpy(static_cast<std::byte*>(cameraUBO->getAllocationInfo().pMappedData), &cameraMVP,
+                static_cast<std::size_t>(cameraUBO->getSize()));
 
-    auto pipelineLayout = pipeline->getDescriptorSetLayout();
-
-    // normals and tangents
-    auto normalTangentLayout = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                            [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                              return info.first == std::string("normal");
-                                            });
-    if (normalTangentLayout != pipelineLayout.end()) {
-      vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              pipeline->getPipelineLayout(), 0, 1,
-                              &_descriptorSetNormalsMesh[currentFrame]->getDescriptorSets(), 0, nullptr);
-    }
-
-    // depth
-    auto depthLayout = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                    [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                      return info.first == std::string("depth");
-                                    });
-    if (depthLayout != pipelineLayout.end()) {
-      vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              pipeline->getPipelineLayout(), 0, 1, &cameraDS->getDescriptorSets(), 0, nullptr);
-    }
-
-    // joints
-    auto jointLayout = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                    [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                      return info.first == std::string("joints");
-                                    });
-
-    if (jointLayout != pipelineLayout.end()) {
-      // if node->skin == -1 then use 0 index that contains identity matrix because of animation default behavior
-      vkCmdBindDescriptorSets(
-          commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), 1, 1,
-          &_descriptorSetJoints[currentFrame][std::max(0, node->skin)]->getDescriptorSets(), 0, nullptr);
-    }
+    const auto skinIndex = std::max(0, node->skin);
 
     for (MeshPrimitive primitive : _meshes[node->mesh]->getPrimitives()) {
       if (primitive.indexCount > 0) {
@@ -992,44 +804,36 @@ void Model3D::_drawNode(std::shared_ptr<CommandBuffer> commandBuffer,
           }
         }
 
-        // color
-        auto layoutColor = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                        [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                          return info.first == std::string("color");
-                                        });
-        if (layoutColor != pipelineLayout.end()) {
-          vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                  pipeline->getPipelineLayout(), 0, 1,
-                                  &_descriptorSetColor[currentFrame][materialIndex]->getDescriptorSets(), 0, nullptr);
-        }
-
-        // phong
-        auto layoutPhong = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                        [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                          return info.first == std::string("phong");
-                                        });
-        if (layoutPhong != pipelineLayout.end()) {
-          vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                  pipeline->getPipelineLayout(), 0, 1,
-                                  &_descriptorSetPhong[currentFrame][materialIndex]->getDescriptorSets(), 0, nullptr);
-        }
-
-        // pbr
-        auto layoutPBR = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                      [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                        return info.first == std::string("pbr");
-                                      });
-        if (layoutPBR != pipelineLayout.end()) {
-          vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                  pipeline->getPipelineLayout(), 0, 1,
-                                  &_descriptorSetPBR[currentFrame][materialIndex]->getDescriptorSets(), 0, nullptr);
-        }
-
         auto currentPipeline = pipeline;
         // by default double side is false
         if (material->getDoubleSided()) currentPipeline = pipelineCullOff;
         vkCmdBindPipeline(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
                           currentPipeline->getPipeline());
+        if (cameraDS != nullptr) {
+          cameraDS->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer);
+        } else if (_drawType == DrawType::NORMAL || _drawType == DrawType::TANGENT) {
+          _descriptorSetNormalsMesh[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                        currentPipeline->getPipelineLayout(), *commandBuffer);
+        } else {
+          std::shared_ptr<RenderGraph::DescriptorSet> descriptor;
+          if (_materialType == MaterialType::COLOR) descriptor = _descriptorSetColor[currentFrame][materialIndex];
+          if (_materialType == MaterialType::PHONG) descriptor = _descriptorSetPhong[currentFrame][materialIndex];
+          if (_materialType == MaterialType::PBR) descriptor = _descriptorSetPBR[currentFrame][materialIndex];
+          descriptor->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer);
+          if (_materialType == MaterialType::PHONG) {
+            _gameState->getLightManager()->getDSGlobalModelPhong()->bind(
+                VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer);
+          } else if (_materialType == MaterialType::PBR) {
+            _gameState->getLightManager()->getDSGlobalModelPBR()->bind(
+                VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer);
+          }
+        }
+        const auto& descriptorLayouts = currentPipeline->getDescriptorSetLayout();
+        if (std::find(descriptorLayouts.begin(), descriptorLayouts.end(), _descriptorSetLayoutJoints.get()) !=
+            descriptorLayouts.end()) {
+          _descriptorSetJoints[currentFrame][skinIndex]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                              currentPipeline->getPipelineLayout(), *commandBuffer);
+        }
         vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), primitive.indexCount, 1, primitive.firstIndex, 0, 0);
       }
     }
@@ -1044,7 +848,7 @@ void Model3D::enableShadow(bool enable) { _enableShadow = enable; }
 
 void Model3D::enableLighting(bool enable) { _enableLighting = enable; }
 
-void Model3D::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
+void Model3D::draw(const RenderGraph::CommandBuffer* commandBuffer) {
   auto pipeline = _pipeline[_materialType];
   auto pipelineCullOff = _pipelineCullOff[_materialType];
   if (_drawType == DrawType::WIREFRAME) pipeline = _pipelineWireframe[_materialType];
@@ -1058,21 +862,27 @@ void Model3D::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
   }
 
   auto resolution = _engineState->getSettings()->getResolution();
-  int currentFrame = _engineState->getFrameInFlight();
-
+  const int currentFrame = _engineState->getFrameInFlight();
   if (_changedMaterial[currentFrame]) {
     switch (_materialType) {
       case MaterialType::COLOR:
-        _updateColorDescriptor();
+        _updateColorDescriptor(*commandBuffer);
         break;
       case MaterialType::PHONG:
-        _updatePhongDescriptor();
+        _updatePhongDescriptor(*commandBuffer);
         break;
       case MaterialType::PBR:
-        _updatePBRDescriptor();
+        _updatePBRDescriptor(*commandBuffer);
         break;
     }
     _changedMaterial[currentFrame] = false;
+  }
+  {
+    std::unique_lock<std::mutex> lock(_descriptorUpdateMutex);
+    if (_changedJointsDescriptors[currentFrame]) {
+      _updateJointsDescriptor(currentFrame, *commandBuffer);
+      _changedJointsDescriptors[currentFrame] = false;
+    }
   }
 
   VkViewport viewport{.x = 0.0f,
@@ -1090,33 +900,9 @@ void Model3D::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
     FragmentPush pushConstants{.enableShadow = _enableShadow,
                                .enableLighting = _enableLighting,
                                .cameraPosition = _gameState->getCameraManager()->getCurrentCamera()->getEye()};
-    auto info = pipeline->getPushConstants()["constants"];
+    auto info = pipeline->getPushConstants().at("constants");
     vkCmdPushConstants(commandBuffer->getCommandBuffer(), pipeline->getPipelineLayout(), info.stageFlags, info.offset,
                        info.size, &pushConstants);
-  }
-
-  auto pipelineLayout = pipeline->getDescriptorSetLayout();
-
-  // global Phong
-  auto globalLayoutPhong = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                        [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                          return info.first == std::string("globalPhong");
-                                        });
-  if (globalLayoutPhong != pipelineLayout.end()) {
-    vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipeline->getPipelineLayout(), 2, 1,
-                            &_gameState->getLightManager()->getDSGlobalPhong()->getDescriptorSets(), 0, nullptr);
-  }
-
-  // global PBR
-  auto globalLayoutPBR = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                      [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                        return info.first == std::string("globalPBR");
-                                      });
-  if (globalLayoutPBR != pipelineLayout.end()) {
-    vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipeline->getPipelineLayout(), 2, 1,
-                            &_gameState->getLightManager()->getDSGlobalPBR()->getDescriptorSets(), 0, nullptr);
   }
 
   // Render all nodes at top-level
@@ -1127,10 +913,24 @@ void Model3D::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
   }
 }
 
-void Model3D::drawShadow(LightType lightType, int lightIndex, int face, std::shared_ptr<CommandBuffer> commandBuffer) {
+void Model3D::drawShadow(LightType lightType,
+                         int lightIndex,
+                         int face,
+                         const RenderGraph::CommandBuffer* commandBuffer) {
   if (_enableDepth == false) return;
 
   int currentFrame = _engineState->getFrameInFlight();
+  {
+    std::unique_lock<std::mutex> lock(_descriptorUpdateMutex);
+    if (_changedShadowDescriptors[currentFrame]) {
+      _updateDepthDescriptors(currentFrame, *commandBuffer);
+      _changedShadowDescriptors[currentFrame] = false;
+    }
+    if (_changedJointsDescriptors[currentFrame]) {
+      _updateJointsDescriptor(currentFrame, *commandBuffer);
+      _changedJointsDescriptors[currentFrame] = false;
+    }
+  }
   auto pipeline = _pipelineDirectional;
   if (lightType == LightType::POINT) pipeline = _pipelinePoint;
 
@@ -1138,21 +938,23 @@ void Model3D::drawShadow(LightType lightType, int lightIndex, int face, std::sha
 
   std::tuple<int, int> resolution;
   if (lightType == LightType::DIRECTIONAL) {
-    resolution = _gameState->getLightManager()
-                     ->getDirectionalShadows()[lightIndex]
-                     ->getShadowMapTexture()[currentFrame]
-                     ->getImageView()
-                     ->getImage()
-                     ->getResolution();
+    const auto imageResolution = _gameState->getLightManager()
+                                     ->getDirectionalShadows()[lightIndex]
+                                     ->getShadowMapTexture()[currentFrame]
+                                     ->getImageView()
+                                     .getImage()
+                                     .getResolution();
+    resolution = {imageResolution.x, imageResolution.y};
   }
   if (lightType == LightType::POINT) {
-    resolution = _gameState->getLightManager()
-                     ->getPointShadows()[lightIndex]
-                     ->getShadowMapCubemap()[currentFrame]
-                     ->getTexture()
-                     ->getImageView()
-                     ->getImage()
-                     ->getResolution();
+    const auto imageResolution = _gameState->getLightManager()
+                                     ->getPointShadows()[lightIndex]
+                                     ->getShadowMapCubemap()[currentFrame]
+                                     ->getTexture()
+                                     ->getImageView()
+                                     .getImage()
+                                     .getResolution();
+    resolution = {imageResolution.x, imageResolution.y};
   }
 
   // Cube Maps have been specified to follow the RenderMan specification (for whatever reason),
@@ -1182,8 +984,9 @@ void Model3D::drawShadow(LightType lightType, int lightIndex, int face, std::sha
       pushConstants.lightPosition =
           _gameState->getLightManager()->getPointLights()[lightIndex]->getCamera()->getPosition();
       // light camera
-      pushConstants.far = _gameState->getLightManager()->getPointLights()[lightIndex]->getCamera()->getFar();
-      auto info = pipeline->getPushConstants()["constants"];
+      pushConstants.far = static_cast<int>(
+          _gameState->getLightManager()->getPointLights()[lightIndex]->getCamera()->getFar());
+      auto info = pipeline->getPushConstants().at("constants");
       vkCmdPushConstants(commandBuffer->getCommandBuffer(), pipeline->getPipelineLayout(), info.stageFlags, info.offset,
                          info.size, &pushConstants);
     }

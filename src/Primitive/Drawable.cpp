@@ -4,25 +4,25 @@ void Named::setName(std::string name) { _name = name; }
 
 std::string Named::getName() { return _name; }
 
-void Drawable::setOriginShift(glm::vec3 originShift) { _originShift = originShift; }
+void Transformable::setOriginShift(glm::vec3 originShift) { _originShift = originShift; }
 
-void Drawable::setOriginRotate(glm::quat rotate) { _originRotate = rotate; }
+void Transformable::setOriginRotate(glm::quat rotate) { _originRotate = rotate; }
 
-void Drawable::setTranslate(glm::vec3 translate) { _translate = translate; }
+void Transformable::setTranslate(glm::vec3 translate) { _translate = translate; }
 
-void Drawable::setRotate(glm::quat rotate) { _rotate = rotate; }
+void Transformable::setRotate(glm::quat rotate) { _rotate = rotate; }
 
-void Drawable::setScale(glm::vec3 scale) { _scale = scale; }
+void Transformable::setScale(glm::vec3 scale) { _scale = scale; }
 
-glm::vec3 Drawable::getOriginShift() { return _originShift; }
+glm::vec3 Transformable::getOriginShift() { return _originShift; }
 
-glm::vec3 Drawable::getTranslate() { return _translate; }
+glm::vec3 Transformable::getTranslate() { return _translate; }
 
-glm::quat Drawable::getRotate() { return _rotate; }
+glm::quat Transformable::getRotate() { return _rotate; }
 
-glm::vec3 Drawable::getScale() { return _scale; }
+glm::vec3 Transformable::getScale() { return _scale; }
 
-glm::mat4 Drawable::getModel() {
+glm::mat4 Transformable::getModel() {
   // goal is receive transformation matrix in form of translate * rotate * scale * originRotate * originTranslate *
   // position; to achieve this we have to apply matrices in this order: translate -> rotate -> scale -> originRotate ->
   // originTranslate

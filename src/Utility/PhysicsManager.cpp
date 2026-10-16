@@ -41,12 +41,12 @@ void CustomThreadPool::QueueJob(Job* inJob) {
   if (inJob != nullptr) {
     inJob->AddRef();
 
-    _pool->submit([logger = _logger, job = inJob]() {
+    static_cast<void>(_pool->submit([logger = _logger, job = inJob]() {
       logger->begin(job->GetName(), nullptr, {1.f, 0.f, 0.f, 1.f});
       job->Execute();
       job->Release();
       logger->end();
-    });
+    }));
   }
 }
 

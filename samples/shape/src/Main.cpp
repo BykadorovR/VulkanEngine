@@ -30,7 +30,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Shape");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -70,12 +69,11 @@ Main::Main() {
   _directionalLight->setColor(glm::vec3(1.f, 1.f, 1.f));
   _directionalLight->getCamera()->setPosition(glm::vec3(0.f, 20.f, 0.f));
 
-  auto meshCubePlain = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
+  auto meshCubePlain = std::make_shared<MeshCube>(_core->getEngineState());
   // cube colored light
   {
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-                       _core->getCommandBufferApplication());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
     _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
     _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
     _core->addDrawable(_cubeColoredLightVertical);
@@ -102,9 +100,8 @@ Main::Main() {
 
   // cube colored
   {
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)},
-                       _core->getCommandBufferApplication());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
     auto cubeColored = _core->createShape3D(ShapeType::CUBE, meshCube);
     cubeColored->setTranslate(glm::vec3(0.f, 3.f, -3.f));
     _core->addDrawable(cubeColored);
@@ -146,9 +143,8 @@ Main::Main() {
   }
   // cube colored wireframe
   {
-    auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)},
-                       _core->getCommandBufferApplication());
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
     auto cubeColoredWireframe = _core->createShape3D(ShapeType::CUBE, meshCube);
     cubeColoredWireframe->setTranslate(glm::vec3(3.f, 3.f, -3.f));
     cubeColoredWireframe->setDrawType(DrawType::WIREFRAME);
@@ -256,12 +252,11 @@ Main::Main() {
     cubeWireframePBR->setTranslate(glm::vec3(3.f, 6.f, -3.f));
     _core->addDrawable(cubeWireframePBR);
   }
-  auto meshSpherePlain = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
+  auto meshSpherePlain = std::make_shared<MeshSphere>(_core->getEngineState());
   {
     // sphere colored
-    auto meshSpere = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshSpere->setColor(std::vector{meshSpere->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)},
-                        _core->getCommandBufferApplication());
+    auto meshSpere = std::make_shared<MeshSphere>(_core->getEngineState());
+    meshSpere->setColor(std::vector{meshSpere->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)});
     auto sphereColored = _core->createShape3D(ShapeType::SPHERE, meshSpere);
     sphereColored->setTranslate(glm::vec3(0.f, 3.f, 3.f));
     _core->addDrawable(sphereColored);
@@ -293,9 +288,8 @@ Main::Main() {
   }
   {
     // sphere colored wireframe
-    auto meshSphere = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
-    meshSphere->setColor(std::vector{meshSphere->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)},
-                         _core->getCommandBufferApplication());
+    auto meshSphere = std::make_shared<MeshSphere>(_core->getEngineState());
+    meshSphere->setColor(std::vector{meshSphere->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)});
 
     auto sphereColoredWireframe = _core->createShape3D(ShapeType::SPHERE, meshSphere);
     sphereColoredWireframe->setDrawType(DrawType::WIREFRAME);

@@ -1,56 +1,59 @@
-import subprocess
 from zipfile import ZipFile
 import os
 from pathlib import Path
 import shutil
 import gdown
 
-stubs = "https://drive.google.com/drive/folders/18V75kGAbsqmTguGSrRenk6zouoe14RHH?usp=sharing"
-box = "https://drive.google.com/drive/folders/1FOFbhqplR9viJz7jz0kDTYDd7ufWaXap?usp=sharing"
-gdown.download_folder(url=stubs, output="assets/stubs", quiet=False, use_cookies=False)
-gdown.download_folder(url=box, output="assets/box", quiet=False, use_cookies=False)
+stubs = "https://drive.google.com/drive/folders/18V75kGAbsqmTguGSrRenk6zouoe14RHH?usp=drive_link"
+box = "https://drive.google.com/drive/folders/1FOFbhqplR9viJz7jz0kDTYDd7ufWaXap?usp=drive_link"
+resources = "https://drive.google.com/uc?id=1wQBIKqo5D1nYNoAMARTppRnONI0GsG-d"
+stubsFiles = gdown.download_folder(url=stubs, output="assets/stubs", quiet=False, use_cookies=False)
+boxFiles = gdown.download_folder(url=box, output="assets/box", quiet=False, use_cookies=False)
+if not stubsFiles or not boxFiles:
+	raise RuntimeError("Failed to download shared assets")
 
-subprocess.run('gdown --id 1fB0xE3-xWuRqZ_tNFvc8XnLHfq5BXt0O')
+archivePath = gdown.download(url=resources, output="resources.zip", quiet=False)
+if archivePath is None:
+	raise RuntimeError("Failed to download resources archive")
 
-with ZipFile("resources.zip") as file_zip:
-	file_zip.extractall("Unpacked")
+with ZipFile(archivePath) as fileZip:
+	fileZip.extractall("Unpacked")
 
-directory = 'Unpacked'
+directory = "Unpacked"
 
-for source_dir in os.listdir(directory):
-	source_path = r'{}'.format(directory + "\\" + source_dir)
+for sourceDir in os.listdir(directory):
+	sourcePath = os.path.join(directory, sourceDir)
 
-	dir_in_lower_case = source_dir.lower()
-	print(dir_in_lower_case)
+	dirInLowerCase = sourceDir.lower()
+	print(dirInLowerCase)
 
-	main_path = r'{}'.format(Path(source_dir).parent.absolute())
+	mainPath = str(Path(sourceDir).parent.absolute())
 
-	target_dir = main_path + "\\samples\\" + dir_in_lower_case + "\\assets"
+	targetDir = os.path.join(mainPath, "samples", dirInLowerCase, "assets")
 
-	if os.path.isdir(target_dir):
-		shutil.rmtree(target_dir)
-	print('moving from '+ str(source_path) + ' to ' + str(target_dir))
-	os.rename(source_path, target_dir)
+	if os.path.isdir(targetDir):
+		shutil.rmtree(targetDir)
+	print("moving from " + sourcePath + " to " + targetDir)
+	shutil.move(sourcePath, targetDir)
 
 # Android uses the same resources as Scene sample
-files_to_copy = ['assets/', 'samples/sprite/assets/', 'samples/IBL/assets/', 'samples/terrain/assets', 'samples/particles/assets', 'samples/scene/assets/Skybox']
-def copytree(src, dst, symlinks=False, ignore=None):
+filesToCopy = ["assets/", "samples/model/assets/BrainStem/", "samples/sprite/assets/", "samples/IBL/assets/", "samples/terrain/assets", "samples/particles/assets", "samples/scene/assets/Skybox"]
+def copyTree(src, dst, symLinks=False, ignore=None):
     for item in os.listdir(src):
         s = os.path.join(src, item)
         d = os.path.join(dst, item)
         if os.path.isdir(s):
-            if not os.path.exists(d):
-                shutil.copytree(s, d, symlinks, ignore)
+            shutil.copytree(s, d, symLinks, ignore, dirs_exist_ok=True)
         else:
             shutil.copy2(s, d)
 
-assets_folder = 'samples/android/app/src/main/assets'
-if not os.path.exists(assets_folder):
-        os.makedirs(assets_folder)
-for item in files_to_copy:
-	copytree(item, assets_folder)
+assetsFolder = "samples/android/app/src/main/assets"
+if not os.path.exists(assetsFolder):
+		os.makedirs(assetsFolder)
+for item in filesToCopy:
+	copyTree(item, assetsFolder)
 
-print("Neccessary files have been copied to Android sample folder")
+print("Necessary files have been copied to Android sample folder")
 
-os.remove("resources.zip")
+os.remove(archivePath)
 os.rmdir("Unpacked")

@@ -31,7 +31,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Sprite");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -56,7 +55,7 @@ Main::Main() {
   _core->createPostprocessing();
 
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
-  _camera->setSpeed(0.05f, 0.01f);
+  _camera->setSpeed(0.05f, 0.001f);
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_camera));
   _inputHandler = std::make_shared<InputHandler>(_core);

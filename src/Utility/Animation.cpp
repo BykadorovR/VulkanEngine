@@ -1,3 +1,4 @@
+#include <cstring>
 #include "Utility/Animation.h"
 
 Animation::Animation(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
@@ -13,35 +14,41 @@ Animation::Animation(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
   for (int i = 0; i < _skins.size(); i++) {
     _ssboJoints[i].resize(_engineState->getSettings()->getMaxFramesInFlight());
     for (int j = 0; j < _engineState->getSettings()->getMaxFramesInFlight(); j++) {
-      _ssboJoints[i][j] = std::make_shared<Buffer>(
+      _ssboJoints[i][j] = std::make_shared<RenderGraph::Buffer>(
           sizeof(glm::vec4) + _skins[i]->inverseBindMatrices.size() * sizeof(glm::mat4),
           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState);
+          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+          *_engineState->getMemoryAllocator());
     }
   }
 
   // store default descriptor set in 0 index and 0 SSBO
   if (_skins.size() == 0) {
-    std::vector<std::shared_ptr<Buffer>> bufferStubs;
+    std::vector<std::shared_ptr<RenderGraph::Buffer>> bufferStubs;
     for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-      bufferStubs.push_back(std::make_shared<Buffer>(
+      bufferStubs.push_back(std::make_shared<RenderGraph::Buffer>(
           sizeof(glm::mat4) + sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState));
+          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+          *_engineState->getMemoryAllocator()));
     }
     _ssboJoints.push_back(bufferStubs);
     auto identityMat = glm::mat4(1.f);
     int jointNumber = 0;
     for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-      _ssboJoints[0][i]->setData(&jointNumber, sizeof(glm::vec4));
-      _ssboJoints[0][i]->setData(&identityMat, sizeof(glm::mat4), sizeof(glm::vec4));
+      std::memcpy(static_cast<std::byte*>(_ssboJoints[0][i]->getAllocationInfo().pMappedData), &jointNumber,
+                  static_cast<std::size_t>(sizeof(glm::vec4)));
+      std::memcpy(static_cast<std::byte*>(_ssboJoints[0][i]->getAllocationInfo().pMappedData) + (sizeof(glm::vec4)),
+                  &identityMat, static_cast<std::size_t>(sizeof(glm::mat4)));
     }
   }
 }
 
-std::vector<std::vector<std::shared_ptr<Buffer>>> Animation::getGlobalMatricesBuffer() { return _ssboJoints; }
+std::vector<std::vector<std::shared_ptr<RenderGraph::Buffer>>> Animation::getGlobalMatricesBuffer() {
+  return _ssboJoints;
+}
 
 void Animation::_updateJoints(int currentImage, std::shared_ptr<NodeGLTF> node) {
-  if (node->skin > -1 && _matricesGlobal.size() > 0) {
+  if (node->skin > -1 && !_matricesGlobal.empty()) {
     // Update the joint matrices
     glm::mat4 inverseTransform = glm::inverse(_matricesGlobal[node->index]);
     std::shared_ptr<SkinGLTF> skin = _skins[node->skin];
@@ -50,10 +57,12 @@ void Animation::_updateJoints(int currentImage, std::shared_ptr<NodeGLTF> node) 
       _matricesJoint[i] = inverseTransform * (_matricesGlobal[skin->joints[i]->index] * skin->inverseBindMatrices[i]);
     }
     auto frameInFlight = currentImage % _engineState->getSettings()->getMaxFramesInFlight();
-    int jointNumber = _matricesJoint.size();
-    _ssboJoints[node->skin][frameInFlight]->setData(&jointNumber, sizeof(glm::vec4));
-    _ssboJoints[node->skin][frameInFlight]->setData(_matricesJoint.data(), _matricesJoint.size() * sizeof(glm::mat4),
-                                                    sizeof(glm::vec4));
+    const int jointNumber = static_cast<int>(_matricesJoint.size());
+    std::memcpy(static_cast<std::byte*>(_ssboJoints[node->skin][frameInFlight]->getAllocationInfo().pMappedData),
+                &jointNumber, static_cast<std::size_t>(sizeof(glm::vec4)));
+    std::memcpy(static_cast<std::byte*>(_ssboJoints[node->skin][frameInFlight]->getAllocationInfo().pMappedData) +
+                    (sizeof(glm::vec4)),
+                _matricesJoint.data(), static_cast<std::size_t>(_matricesJoint.size() * sizeof(glm::mat4)));
   }
 
   for (auto& child : node->children) {
@@ -128,7 +137,7 @@ void Animation::setTime(float time) {
 }
 
 std::tuple<float, float> Animation::getTimeRange() {
-  return {0, _animations[_animationIndex]->end - _animations[_animationIndex]->start};
+  return {0.0f, _animations[_animationIndex]->end - _animations[_animationIndex]->start};
 }
 
 // TODO: mutex?
@@ -136,7 +145,7 @@ float Animation::getCurrentTime() { return _animations[_animationIndex]->current
 
 void Animation::calculateJoints(float deltaTime) {
   std::unique_lock<std::mutex> lock(_mutex);
-  if (_play == false || _animations.size() == 0 || _animationIndex > static_cast<uint32_t>(_animations.size()) - 1) {
+  if (!_play || _animations.empty() || _animationIndex >= _animations.size()) {
     return;
   }
   auto logger = _engineState->getLogger();
@@ -157,10 +166,10 @@ void Animation::calculateJoints(float deltaTime) {
       if (higher != sampler.inputs.begin()) {
         if (higher == sampler.inputs.end() && (animation->currentTime + animation->start) > sampler.inputs.back())
           continue;
-        int right = std::distance(sampler.inputs.begin(), higher);
-        int left = right - 1;
-        float a = (animation->currentTime + animation->start - sampler.inputs[left]) /
-                  (sampler.inputs[right] - sampler.inputs[left]);
+        const auto right = static_cast<std::size_t>(std::distance(sampler.inputs.begin(), higher));
+        const auto left = right - 1;
+        const float a = (animation->currentTime + animation->start - sampler.inputs[left]) /
+                        (sampler.inputs[right] - sampler.inputs[left]);
         if (channel.path == "translation") {
           channel.node->translation = glm::mix(sampler.outputsVec4[left], sampler.outputsVec4[right], a);
         }
@@ -189,7 +198,10 @@ void Animation::calculateJoints(float deltaTime) {
                                    return value > (current + start);
                                  });
       // Get the input keyframe values for the current time stamp
-      int value = std::distance(sampler.inputs.begin(), higher);
+      if (sampler.inputs.empty() || sampler.outputsVec4.empty()) continue;
+      const auto value = higher == sampler.inputs.end()
+                             ? sampler.outputsVec4.size() - 1
+                             : static_cast<std::size_t>(std::distance(sampler.inputs.begin(), higher));
       if (channel.path == "translation") {
         channel.node->translation = sampler.outputsVec4[value];
       }

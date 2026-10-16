@@ -83,7 +83,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Sprite");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -374,29 +373,29 @@ Main::Main() {
 
   std::vector<std::shared_ptr<Shape3D>> spheres(6);
   // non HDR
-  auto mesh0 = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
-  mesh0->setColor({{0.f, 0.f, 0.1f}}, commandBufferTransfer);
+  auto mesh0 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh0->setColor({{0.f, 0.f, 0.1f}});
   spheres[0] = _core->createShape3D(ShapeType::SPHERE, mesh0);
   spheres[0]->setTranslate(glm::vec3(0.f, 5.f, 0.f));
-  auto mesh1 = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
-  mesh1->setColor({{0.f, 0.f, 0.5f}}, commandBufferTransfer);
+  auto mesh1 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh1->setColor({{0.f, 0.f, 0.5f}});
   spheres[1] = _core->createShape3D(ShapeType::SPHERE, mesh1);
   spheres[1]->setTranslate(glm::vec3(2.f, 5.f, 0.f));
-  auto mesh2 = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
-  mesh2->setColor({{0.f, 0.f, 10.f}}, commandBufferTransfer);
+  auto mesh2 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh2->setColor({{0.f, 0.f, 10.f}});
   spheres[2] = _core->createShape3D(ShapeType::SPHERE, mesh2);
   spheres[2]->setTranslate(glm::vec3(-2.f, 5.f, 0.f));
   // HDR
-  auto mesh3 = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
-  mesh3->setColor({{5.f, 0.f, 0.f}}, commandBufferTransfer);
+  auto mesh3 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh3->setColor({{5.f, 0.f, 0.f}});
   spheres[3] = _core->createShape3D(ShapeType::SPHERE, mesh3);
   spheres[3]->setTranslate(glm::vec3(0.f, 5.f, 2.f));
-  auto mesh4 = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
-  mesh4->setColor({{0.f, 5.f, 0.f}}, commandBufferTransfer);
+  auto mesh4 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh4->setColor({{0.f, 5.f, 0.f}});
   spheres[4] = _core->createShape3D(ShapeType::SPHERE, mesh4);
   spheres[4]->setTranslate(glm::vec3(-4.f, 7.f, -2.f));
-  auto mesh5 = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
-  mesh5->setColor({{0.f, 0.f, 20.f}}, commandBufferTransfer);
+  auto mesh5 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh5->setColor({{0.f, 0.f, 20.f}});
   spheres[5] = _core->createShape3D(ShapeType::SPHERE, mesh5);
   spheres[5]->setTranslate(glm::vec3(-4.f, 5.f, -2.f));
   for (auto& sphere : spheres) {
@@ -409,7 +408,7 @@ Main::Main() {
        "../assets/Skybox/bottom.jpg", "../assets/Skybox/front.jpg", "../assets/Skybox/back.jpg"},
       settings->getLoadTextureColorFormat(), 1);
 
-  auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
+  auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
   auto cube = _core->createShape3D(ShapeType::CUBE, meshCube);
   auto materialColor = _core->createMaterialColor(MaterialTarget::SIMPLE);
   materialColor->setBaseColor({_cubemapSkybox->getTexture()});

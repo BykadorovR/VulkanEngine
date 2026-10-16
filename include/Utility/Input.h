@@ -1,9 +1,15 @@
 #pragma once
-#include "Vulkan/Window.h"
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
 #include <tuple>
 #include <vector>
 #include <memory>
 #include <any>
+#ifndef __ANDROID__
+#include <GLFW/glfw3.h>
+#endif
+
+import Window;
 
 class InputSubscriber {
  public:
@@ -25,13 +31,13 @@ class InputSubscriberExclusive {
 
 class Input {
  private:
-  std::shared_ptr<Window> _window;
-  std::vector<std::shared_ptr<InputSubscriberExclusive>> _subscribersExclusive;
-  std::vector<std::shared_ptr<InputSubscriber>> _subscribers;
+  std::shared_ptr<RenderGraph::Window> _window;
+  std::vector<std::weak_ptr<InputSubscriberExclusive>> _subscribersExclusive;
+  std::vector<std::weak_ptr<InputSubscriber>> _subscribers;
   bool _showCursor = true;
 
  public:
-  Input(std::shared_ptr<Window> window);
+  Input(std::shared_ptr<RenderGraph::Window> window);
   void cursorHandler(double xpos, double ypos);
   void mouseHandler(int button, int action, int mods);
   void keyHandler(int key, int scancode, int action, int mods);

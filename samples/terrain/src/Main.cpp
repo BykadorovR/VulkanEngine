@@ -130,7 +130,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Terrain");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -155,6 +154,9 @@ Main::Main() {
   _core->createPostprocessing();
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
+  _camera->setViewParameters(glm::vec3(0.f, 10.f, 20.f), glm::normalize(glm::vec3(0.f, -0.42f, -0.91f)),
+                             glm::vec3(0.f, 1.f, 0.f));
+  _camera->setAngles(-90.f, -25.f, 0.f);
   _camera->setSpeed(0.05f, 0.01f);
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_camera));
   _inputHandler = std::make_shared<InputHandler>(_core);
@@ -169,9 +171,8 @@ Main::Main() {
   auto ambientLight = _core->createAmbientLight();
   ambientLight->setColor({0.5f, 0.5f, 0.5f});
   // cube colored light
-  auto meshCube = std::make_shared<MeshCube>(_core->getCommandBufferApplication(), _core->getEngineState());
-  meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-                     _core->getCommandBufferApplication());
+  auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+  meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
 
   _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
   _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
@@ -179,7 +180,7 @@ Main::Main() {
   _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE, meshCube);
   _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
   _core->addDrawable(_cubeColoredLightHorizontal);
-  auto meshSphere = std::make_shared<MeshSphere>(_core->getCommandBufferApplication(), _core->getEngineState());
+  auto meshSphere = std::make_shared<MeshSphere>(_core->getEngineState());
   _sphereClickDebug = _core->createShape3D(ShapeType::SPHERE, meshSphere);
   _sphereClickDebug->setScale(glm::vec3(0.005f, 0.005f, 0.005f));
 
@@ -333,7 +334,7 @@ Main::Main() {
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));
 }
 
-void Main::update(std::shared_ptr<CommandBuffer> commandBuffer) {
+void Main::update(const RenderGraph::CommandBuffer* commandBuffer) {
   static float i = 0;
   // update light position
   float radius = 15.f;
@@ -451,7 +452,7 @@ void Main::update(std::shared_ptr<CommandBuffer> commandBuffer) {
   if (_showDebug) {
     _gui->startWindow("Editor");
     _gui->setWindowPosition({widthScreen - std::get<0>(_gui->getWindowSize()) - 20, 20});
-    _terrainDebug->drawDebug(_core->getCommandBufferApplication());
+    _terrainDebug->drawDebug(commandBuffer);
     _gui->endWindow();
   }
 }

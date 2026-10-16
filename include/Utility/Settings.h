@@ -25,8 +25,6 @@ struct Settings {
   std::tuple<int, int> _diffuseIBLResolution = {32, 32};
   std::tuple<int, int> _specularIBLResolution = {128, 128};
   int _specularIBLMipMap = 5;
-  // VkClearColorValue _clearColor = {196.f / 255.f, 233.f / 255.f, 242.f / 255.f, 1.f};
-  VkClearColorValue _clearColor = {0.0f, 0.0f, 0.0f, 1.f};
   std::string _name = "default";
   VkFormat _swapchainColorFormat;
   VkFormat _graphicColorFormat;
@@ -42,9 +40,9 @@ struct Settings {
   int _anisotropicSamples = 0;
   // TODO: protect by mutex?
   int _desiredFPS = 250;
-  std::vector<std::tuple<int, float>> _attenuations = {{7, 1.8},      {13, 0.44},    {20, 0.20},    {32, 0.07},
-                                                       {50, 0.032},   {65, 0.017},   {100, 0.0075}, {160, 0.0028},
-                                                       {200, 0.0019}, {325, 0.0007}, {600, 0.0002}, {3250, 0.000007}};
+  std::vector<std::tuple<int, float>> _attenuations = {{7, 1.8f},      {13, 0.44f},    {20, 0.20f},    {32, 0.07f},
+                                                       {50, 0.032f},   {65, 0.017f},   {100, 0.0075f}, {160, 0.0028f},
+                                                       {200, 0.0019f}, {325, 0.0007f}, {600, 0.0002f}, {3250, 0.000007f}};
   // Depth bias (and slope) are used to avoid shadowing artifacts
   // Constant depth bias factor (always applied)
   float _depthBiasConstant = 1.25f;
@@ -73,7 +71,6 @@ struct Settings {
   void setDepthFormat(VkFormat format);
   void setMaxFramesInFlight(int maxFramesInFlight);
   void setThreadsInPool(int threadsInPool);
-  void setClearColor(VkClearColorValue clearColor);
   void setAnisotropicSamples(int number);
   void setDesiredFPS(int fps);
   void setPoolSize(int poolSizeDescriptorSets,
@@ -99,7 +96,6 @@ struct Settings {
   VkFormat getLoadTextureAuxilaryFormat();
   VkFormat getDepthFormat();
   VkFormat getShadowMapFormat();
-  VkClearColorValue getClearColor();
   int getAnisotropicSamples();
   int getDesiredFPS();
   std::tuple<int, int> getDiffuseIBLResolution();

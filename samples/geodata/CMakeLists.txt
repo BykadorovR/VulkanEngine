@@ -1,26 +1,10 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.28)
 
 project(Geodata LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 
-#need for mismatch resolving
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR})
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR})
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
-
-include(FetchContent)
-
-set(JSON_BuildTests OFF CACHE BOOL "Disable JSON tests")
-FetchContent_Declare(
-        json
-        GIT_REPOSITORY https://github.com/nlohmann/json.git
-        GIT_TAG        v3.11.3
-)
-
-FetchContent_MakeAvailable(json)
 
 #affects all projects, add folder "include" to include section in VS
 include_directories("include")
@@ -35,6 +19,16 @@ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 #include headers to project (so they will be shown in include folder)
 add_executable(${PROJECT_NAME} ${app_header} ${app_source})
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}"
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}"
+  ARCHIVE_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}"
+  ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}"
+)
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+  GLM_ENABLE_EXPERIMENTAL
+  GEODATA_ASSETS_PATH="${CMAKE_CURRENT_SOURCE_DIR}/assets/"
+)
 
 ###############################
 
@@ -45,7 +39,7 @@ endif()
 
 find_package(VulkanEngine REQUIRED)
 target_include_directories(${PROJECT_NAME} PRIVATE ${VulkanEngine_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} ${VulkanEngine_LIBRARIES} nlohmann_json::nlohmann_json)
+target_link_libraries(${PROJECT_NAME} ${VulkanEngine_LIBRARIES})
 
 set(SHADER_COMPILE_DEBUG 1)
 #recompile after every build just in case, it's fast

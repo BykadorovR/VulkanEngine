@@ -48,6 +48,8 @@ void main() {
     seed = initRandomSeed(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
     
     uint index = gl_GlobalInvocationID.x;
+    if (index >= particlesIn.length()) return;
+
     Particle particleIn = particlesIn[index];
     if (particleIn.iteration > 0 || particleIn.iteration == -1) {
         if (particleIn.life <= particleIn.minLife) {

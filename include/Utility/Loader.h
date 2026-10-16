@@ -1,12 +1,23 @@
 #pragma once
-#include "Utility/EngineState.h"
-#include "Graphic/Material.h"
-#include "Primitive/Mesh.h"
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <filesystem>
+#include <limits>
+#include <map>
+#include <memory>
+#include <string>
+#include <tuple>
+#include <vector>
 #ifdef __ANDROID__
 #define TINYGLTF_ANDROID_LOAD_FROM_ASSETS
 #endif
 #include "tiny_gltf.h"
-#include <filesystem>
+#include "Utility/EngineState.h"
+#include "Graphic/Buffer.h"
+#include "Graphic/Material.h"
+#include "Primitive/Mesh.h"
+
+import Texture;
 
 template <class T>
 class ImageCPU {
@@ -25,30 +36,38 @@ class ImageCPU {
   int getChannels() { return _channels; }
 };
 
-class LoaderImage {
+class ImageManager {
  private:
   std::shared_ptr<EngineState> _engineState;
 
  public:
-  LoaderImage(std::shared_ptr<EngineState> engineState);
+  ImageManager(std::shared_ptr<EngineState> engineState);
+  std::shared_ptr<RenderGraph::Texture> createTexture(std::shared_ptr<ImageDataBuffer> data,
+                                                       VkFormat format,
+                                                       VkSamplerAddressMode mode,
+                                                       int mipMapLevels,
+                                                       VkFilter filter);
+  void updateTexture(const RenderGraph::Texture& texture, const std::shared_ptr<ImageDataBuffer>& data);
+
   template <class T>
   std::shared_ptr<ImageCPU<T>> loadCPU(std::string path);
 
   // have to support vector of inputs for cubemap
   template <class T>
-  std::shared_ptr<BufferImage> loadGPU(std::vector<std::shared_ptr<ImageCPU<T>>> imagesCPU) {
+  std::shared_ptr<ImageDataBuffer> loadGPU(std::vector<std::shared_ptr<ImageCPU<T>>> imagesCPU) {
     auto [width, height] = imagesCPU[0]->getResolution();
     int channels = imagesCPU[0]->getChannels();
-    std::shared_ptr<BufferImage> bufferImage = std::make_shared<BufferImage>(
-        std::tuple{width, height}, channels, imagesCPU.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState);
+    auto imageDataBuffer = std::make_shared<ImageDataBuffer>(
+        std::tuple{width, height}, channels, static_cast<int>(imagesCPU.size()), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        *_engineState->getMemoryAllocator());
     for (int i = 0; i < imagesCPU.size(); i++) {
       auto pixels = imagesCPU[i]->getData();
       VkDeviceSize imageSize = width * height * channels;
-      bufferImage->setData(pixels.get(), imageSize * sizeof(T), imageSize * sizeof(T) * i);
+      imageDataBuffer->setData(pixels.get(), imageSize * sizeof(T), imageSize * sizeof(T) * i);
     }
 
-    return bufferImage;
+    return imageDataBuffer;
   }
 };
 
@@ -113,9 +132,7 @@ struct AnimationGLTF {
 
 class ModelGLTF {
  private:
-  std::vector<std::shared_ptr<Texture>> _textures;
   std::vector<std::shared_ptr<NodeGLTF>> _nodes;
-  std::vector<std::shared_ptr<MaterialGLTF>> _materials;
   std::vector<std::shared_ptr<MaterialPhong>> _materialsPhong;
   std::vector<std::shared_ptr<MaterialColor>> _materialsColor;
   std::vector<std::shared_ptr<MaterialPBR>> _materialsPBR;
@@ -145,19 +162,17 @@ class ModelGLTF {
 class LoaderGLTF {
  private:
   std::shared_ptr<EngineState> _engineState;
-  std::shared_ptr<LoaderImage> _loaderImage;
+  std::shared_ptr<ImageManager> _imageManager;
   tinygltf::TinyGLTF _loader;
   std::map<std::string, std::shared_ptr<ModelGLTF>> _models;
 
-  std::shared_ptr<Texture> _loadTexture(int imageIndex,
-                                        VkFormat format,
-                                        const tinygltf::Model& modelInternal,
-                                        std::vector<std::shared_ptr<Texture>>& textures,
-                                        std::shared_ptr<CommandBuffer> commandBufferTransfer);
+  std::shared_ptr<RenderGraph::Texture> _loadTexture(int imageIndex,
+                                                     VkFormat format,
+                                                     const tinygltf::Model& modelInternal,
+                                                     std::vector<std::shared_ptr<RenderGraph::Texture>>& textures);
   void _loadMaterials(const tinygltf::Model& modelInternal,
                       std::vector<std::shared_ptr<MaterialGLTF>>& materialGLTF,
-                      std::shared_ptr<ModelGLTF> modelExternal,
-                      std::shared_ptr<CommandBuffer> commandBufferTransfer);
+                      std::shared_ptr<ModelGLTF> modelExternal);
   void _loadAnimations(const tinygltf::Model& modelInternal,
                        const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
                        std::vector<std::shared_ptr<AnimationGLTF>>& animations);
@@ -174,13 +189,12 @@ class LoaderGLTF {
                  uint32_t nodeIndex,
                  const std::vector<std::shared_ptr<MaterialGLTF>>& materials,
                  const std::vector<std::shared_ptr<MeshStatic3D>>& meshes,
-                 std::vector<std::shared_ptr<NodeGLTF>>& nodes,
-                 std::shared_ptr<CommandBuffer> commandBufferTransfer);
+                 std::vector<std::shared_ptr<NodeGLTF>>& nodes);
 
  public:
-  LoaderGLTF(std::shared_ptr<LoaderImage> loaderImage, std::shared_ptr<EngineState> engineState);
+  LoaderGLTF(std::shared_ptr<ImageManager> imageManager, std::shared_ptr<EngineState> engineState);
 #ifdef __ANDROID__
   void setAssetManager(AAssetManager* assetManager);
 #endif
-  std::shared_ptr<ModelGLTF> load(std::string path, std::shared_ptr<CommandBuffer> commandBufferTransfer);
+  std::shared_ptr<ModelGLTF> load(std::string path);
 };
