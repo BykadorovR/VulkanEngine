@@ -1,14 +1,9 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.28)
 
 project(Postprocessing LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 
-#need for mismatch resolving
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR})
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR})
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
 include(${CMAKE_ROOT}/Modules/ExternalProject.cmake)
 
@@ -25,6 +20,12 @@ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 #include headers to project (so they will be shown in include folder)
 add_executable(${PROJECT_NAME} ${app_header} ${app_source})
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}"
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}"
+  ARCHIVE_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}"
+  ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}"
+)
 
 ###############################
 
@@ -40,7 +41,7 @@ target_link_libraries(${PROJECT_NAME} ${VulkanEngine_LIBRARIES})
 set(SHADER_COMPILE_DEBUG 1)
 #recompile after every build just in case, it's fast
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                   COMMAND python ${VulkanEngine_ROOT}/compile.py ${VulkanEngine_ROOT}/shaders shaders ${Vulkan_GLSLC_EXECUTABLE} ${SHADER_COMPILE_DEBUG}
+                   COMMAND python ${VulkanEngine_ROOT}/compile.py ${VulkanEngine_ROOT}/shaders ${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders ${Vulkan_GLSLC_EXECUTABLE} ${SHADER_COMPILE_DEBUG}
                    COMMENT "Compile shaders")
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -48,5 +49,5 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                    COMMENT "Copy engine binaries")
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
                    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                   COMMAND ${CMAKE_COMMAND} -E copy_directory ${VulkanEngine_ASSETS} ${CMAKE_BINARY_DIR}/assets
+                   COMMAND ${CMAKE_COMMAND} -E copy_directory ${VulkanEngine_ASSETS} ${CMAKE_CURRENT_SOURCE_DIR}/assets
                    COMMENT "Copy engine assets")

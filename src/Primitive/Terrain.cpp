@@ -1,13 +1,20 @@
-#include "Primitive/Terrain.h"
-#undef far
-#undef near
+#include <cstring>
+#include <algorithm>
+#include <future>
+#include <type_traits>
 #include "stb_image_write.h"
+#include <Jolt/Jolt.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
-#include <nlohmann/json.hpp>
+#include "Primitive/Terrain.h"
+
+// Keep standard-library declarations outside the imported module with MSVC.
+import Shader;
+#undef far
+#undef near
 
 TerrainPhysics::TerrainPhysics(std::shared_ptr<ImageCPU<uint8_t>> heightmap,
                                glm::vec3 position,
@@ -50,9 +57,9 @@ void TerrainPhysics::_initialize() {
   }
 
   // Create height field
-  JPH::HeightFieldShapeSettings settingsTerrain(_terrainPhysic.data(),
-                                                JPH::Vec3(0.f, -std::get<1>(_heightScaleOffset), 0.f),
-                                                JPH::Vec3(1.f, std::get<0>(_heightScaleOffset), 1.f), w);
+  JPH::HeightFieldShapeSettings settingsTerrain(
+      _terrainPhysic.data(), JPH::Vec3(0.f, -static_cast<float>(std::get<1>(_heightScaleOffset)), 0.f),
+      JPH::Vec3(1.f, static_cast<float>(std::get<0>(_heightScaleOffset)), 1.f), w);
 
   JPH::RefConst<JPH::HeightFieldShape> heightField = JPH::StaticCast<JPH::HeightFieldShape>(
       settingsTerrain.Create().Get());
@@ -75,7 +82,6 @@ void TerrainPhysics::_initialize() {
 std::vector<float> TerrainPhysics::getHeights() { return _heights; }
 
 void TerrainPhysics::setPosition(glm::vec3 position) {
-  int w = std::get<0>(_resolution);
   _position = glm::vec3(position.x, position.y, position.z);
   _physicsManager->getBodyInterface().SetPosition(_terrainID, JPH::Vec3(_position.x, _position.y, _position.z),
                                                   JPH::EActivation::DontActivate);
@@ -173,12 +179,14 @@ TerrainCPU::TerrainCPU(std::vector<float> heights,
   _loadTerrain();
 }
 
-void TerrainCPU::_updateColorDescriptor() {
-  std::vector<VkDescriptorImageInfo> colorImageInfo(_engineState->getSettings()->getMaxFramesInFlight());
+void TerrainCPU::_updateColorDescriptor(const RenderGraph::CommandBuffer& commandBuffer) {
+  std::vector<RenderGraph::DescriptorSetLayout*> descriptorSetLayouts;
+  for (const auto& layout : _descriptorSetLayout) descriptorSetLayouts.push_back(layout.get());
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-    std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor{
-        {0, {{.buffer = _cameraBuffer[i]->getData(), .offset = 0, .range = _cameraBuffer[i]->getSize()}}}};
-    _descriptorSetColor->createCustom(i, bufferInfoColor, {});
+    _descriptorSetColor[i] = std::make_shared<RenderGraph::DescriptorSet>(
+        descriptorSetLayouts, *_engineState->getDescriptorPool(), *_engineState->getDevice(), 0);
+    _descriptorSetColor[i]->add({_cameraBuffer[i].get()});
+    _descriptorSetColor[i]->initialize(commandBuffer);
   }
 }
 
@@ -190,8 +198,8 @@ void TerrainCPU::_loadStrip(int currentFrame) {
   auto channels = _heightMap->getChannels();
   auto data = _heightMap->getData();
   // 255 - max value from height map, 256 is number of colors
-  for (unsigned int i = 0; i < height; i++) {
-    for (unsigned int j = 0; j < width; j++) {
+  for (int i = 0; i < height; ++i) {
+    for (int j = 0; j < width; ++j) {
       // retrieve texel for (i,j) tex coord
       auto y = data[(j + width * i) * channels];
 
@@ -205,10 +213,10 @@ void TerrainCPU::_loadStrip(int currentFrame) {
   _mesh[currentFrame]->setVertices(vertices);
 
   // index generation
-  for (unsigned int i = 0; i < height - 1; i++) {  // for each row a.k.a. each strip
-    for (unsigned int j = 0; j < width; j++) {     // for each column
-      for (unsigned int k = 0; k < 2; k++) {       // for each side of the strip
-        indices.push_back(j + width * (i + k));
+  for (int i = 0; i < height - 1; ++i) {  // for each row a.k.a. each strip
+    for (int j = 0; j < width; ++j) {     // for each column
+      for (int k = 0; k < 2; ++k) {       // for each side of the strip
+        indices.push_back(static_cast<uint32_t>(j + width * (i + k)));
       }
     }
   }
@@ -251,56 +259,61 @@ void TerrainCPU::_loadTriangles(int currentFrame) {
 }
 
 void TerrainCPU::_loadTerrain() {
-  _renderPass = _engineState->getRenderPassManager()->getRenderPass(RenderPassScenario::GRAPHIC);
-
   _cameraBuffer.resize(_engineState->getSettings()->getMaxFramesInFlight());
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++)
-    _cameraBuffer[i] = std::make_shared<Buffer>(
+    _cameraBuffer[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, _engineState);
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+        *_engineState->getMemoryAllocator());
 
   // layout for Color
   {
-    auto descriptorSetLayout = std::make_shared<DescriptorSetLayout>(_engineState->getDevice());
-    std::vector<VkDescriptorSetLayoutBinding> layoutColor{{.binding = 0,
-                                                           .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                                                           .descriptorCount = 1,
-                                                           .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-                                                           .pImmutableSamplers = nullptr}};
-    descriptorSetLayout->createCustom(layoutColor);
-    _descriptorSetLayout.push_back({"color", descriptorSetLayout});
-    _descriptorSetColor = std::make_shared<DescriptorSet>(_engineState->getSettings()->getMaxFramesInFlight(),
-                                                          descriptorSetLayout, _engineState);
-    // update descriptor set in setMaterial
-    _updateColorDescriptor();
+    auto shader = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/terrain/terrainCPU_vertex.spv"));
+    shader->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
+                                                              "shaders/terrain/terrainCPU_fragment.spv"));
+    auto descriptorSetLayout = std::make_shared<RenderGraph::DescriptorSetLayout>(*_engineState->getDevice());
+    descriptorSetLayout->createCustom(shader->getDescriptorSetLayoutBindings().at(0));
+    _descriptorSetLayout.push_back(descriptorSetLayout);
 
+    _descriptorSetColor.resize(_engineState->getSettings()->getMaxFramesInFlight());
     // initialize Color
     {
-      auto shader = std::make_shared<Shader>(_engineState);
-      shader->add("shaders/terrain/terrainCPU_vertex.spv", VK_SHADER_STAGE_VERTEX_BIT);
-      shader->add("shaders/terrain/terrainCPU_fragment.spv", VK_SHADER_STAGE_FRAGMENT_BIT);
-      _pipeline = std::make_shared<PipelineGraphic>(_engineState->getDevice());
-      _pipeline->setDepthTest(true);
-      _pipeline->setDepthWrite(true);
-      _pipeline->setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP);
-      _pipeline->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout, {}, _mesh[0]->getBindingDescription(),
-          _mesh[0]->Mesh::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}}),
-          _renderPass);
+      std::vector<RenderGraph::DescriptorSetLayout*> descriptorSetLayouts;
+      for (const auto& layout : _descriptorSetLayout) descriptorSetLayouts.push_back(layout.get());
 
-      _pipelineWireframe = std::make_shared<PipelineGraphic>(_engineState->getDevice());
-      _pipelineWireframe->setDepthTest(true);
-      _pipelineWireframe->setDepthWrite(true);
-      _pipelineWireframe->setPolygonMode(VK_POLYGON_MODE_LINE);
-      _pipelineWireframe->setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP);
-      _pipelineWireframe->createCustom(
-          {shader->getShaderStageInfo(VK_SHADER_STAGE_VERTEX_BIT),
-           shader->getShaderStageInfo(VK_SHADER_STAGE_FRAGMENT_BIT)},
-          _descriptorSetLayout, {}, _mesh[0]->getBindingDescription(),
-          _mesh[0]->Mesh::getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}}),
-          _renderPass);
+      RenderGraph::PipelineGraphic pipelineGraphic;
+      pipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
+      pipelineGraphic.setDepthAttachment(_engineState->getSettings()->getDepthFormat());
+      pipelineGraphic.setDepthTest(true);
+      pipelineGraphic.setDepthWrite(true);
+      pipelineGraphic.setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP);
+      const auto vertexBinding = _mesh[0]->getBindingDescription();
+      const auto vertexAttributes = _mesh[0]->getAttributeDescriptions(
+          {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}});
+      const VkPipelineVertexInputStateCreateInfo vertexInput{
+          .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+          .vertexBindingDescriptionCount = 1,
+          .pVertexBindingDescriptions = &vertexBinding,
+          .vertexAttributeDescriptionCount = static_cast<uint32_t>(vertexAttributes.size()),
+          .pVertexAttributeDescriptions = vertexAttributes.data(),
+      };
+      _pipeline = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
+      _pipeline->createGraphic(pipelineGraphic, shader->getShaderStageInfo(), descriptorSetLayouts, {}, vertexInput);
+
+      RenderGraph::PipelineGraphic wireframePipelineGraphic;
+      wireframePipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
+      wireframePipelineGraphic.setDepthAttachment(_engineState->getSettings()->getDepthFormat());
+      wireframePipelineGraphic.setDepthTest(true);
+      wireframePipelineGraphic.setDepthWrite(true);
+#ifndef __ANDROID__
+      wireframePipelineGraphic.setPolygonMode(VK_POLYGON_MODE_LINE);
+#endif
+      wireframePipelineGraphic.setTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP);
+      _pipelineWireframe = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
+      _pipelineWireframe->createGraphic(wireframePipelineGraphic, shader->getShaderStageInfo(), descriptorSetLayouts,
+                                        {}, vertexInput);
     }
   }
 }
@@ -323,11 +336,11 @@ DrawType TerrainCPU::getDrawType() { return _drawType; }
 
 void TerrainCPU::patchEdge(bool enable) { _enableEdge = enable; }
 
-void TerrainCPU::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
-  int currentFrame = _engineState->getFrameInFlight();
-  auto drawTerrain = [&](std::shared_ptr<Pipeline> pipeline) {
-    vkCmdBindPipeline(commandBuffer->getCommandBuffer()[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                      pipeline->getPipeline());
+void TerrainCPU::draw(const RenderGraph::CommandBuffer* commandBuffer) {
+  const int currentFrame = _engineState->getFrameInFlight();
+  if (!_descriptorSetColor[currentFrame]) _updateColorDescriptor(*commandBuffer);
+  auto drawTerrain = [&](std::shared_ptr<RenderGraph::Pipeline> pipeline) {
+    vkCmdBindPipeline(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipeline());
 
     auto resolution = _engineState->getSettings()->getResolution();
     VkViewport viewport{.x = 0.0f,
@@ -336,50 +349,43 @@ void TerrainCPU::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
                         .height = static_cast<float>(-std::get<1>(resolution)),
                         .minDepth = 0.0f,
                         .maxDepth = 1.0f};
-    vkCmdSetViewport(commandBuffer->getCommandBuffer()[currentFrame], 0, 1, &viewport);
+    vkCmdSetViewport(commandBuffer->getCommandBuffer(), 0, 1, &viewport);
 
     VkRect2D scissor{.offset = {0, 0}, .extent = VkExtent2D(std::get<0>(resolution), std::get<1>(resolution))};
-    vkCmdSetScissor(commandBuffer->getCommandBuffer()[currentFrame], 0, 1, &scissor);
+    vkCmdSetScissor(commandBuffer->getCommandBuffer(), 0, 1, &scissor);
 
     // same buffer to both tessellation shaders because we're not going to change camera between these 2 stages
     BufferMVP cameraUBO{.model = getModel(),
                         .view = _gameState->getCameraManager()->getCurrentCamera()->getView(),
                         .projection = _gameState->getCameraManager()->getCurrentCamera()->getProjection()};
 
-    _cameraBuffer[currentFrame]->setData(&cameraUBO);
+    std::memcpy(static_cast<std::byte*>(_cameraBuffer[currentFrame]->getAllocationInfo().pMappedData), &cameraUBO,
+                static_cast<std::size_t>(_cameraBuffer[currentFrame]->getSize()));
 
-    VkBuffer vertexBuffers[] = {_mesh[currentFrame]->getVertexBuffer()->getBuffer()->getData()};
+    VkBuffer vertexBuffers[] = {_mesh[currentFrame]->getVertexBuffer()->getBuffer()->getBuffer()};
     VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(commandBuffer->getCommandBuffer()[currentFrame], 0, 1, vertexBuffers, offsets);
+    vkCmdBindVertexBuffers(commandBuffer->getCommandBuffer(), 0, 1, vertexBuffers, offsets);
     if (_hasIndexes) {
-      VkBuffer indexBuffers = _mesh[currentFrame]->getIndexBuffer()->getBuffer()->getData();
-      vkCmdBindIndexBuffer(commandBuffer->getCommandBuffer()[currentFrame], indexBuffers, 0, VK_INDEX_TYPE_UINT32);
+      VkBuffer indexBuffers = _mesh[currentFrame]->getIndexBuffer()->getBuffer()->getBuffer();
+      vkCmdBindIndexBuffer(commandBuffer->getCommandBuffer(), indexBuffers, 0, VK_INDEX_TYPE_UINT32);
     }
 
-    // color
-    auto pipelineLayout = pipeline->getDescriptorSetLayout();
-    auto colorLayout = std::find_if(pipelineLayout.begin(), pipelineLayout.end(),
-                                    [](std::pair<std::string, std::shared_ptr<DescriptorSetLayout>> info) {
-                                      return info.first == std::string("color");
-                                    });
-    if (colorLayout != pipelineLayout.end()) {
-      vkCmdBindDescriptorSets(commandBuffer->getCommandBuffer()[currentFrame], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              pipeline->getPipelineLayout(), 0, 1,
-                              &_descriptorSetColor->getDescriptorSets()[currentFrame], 0, nullptr);
-    }
+    _descriptorSetColor[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(),
+                                            *commandBuffer);
 
     if (_hasIndexes) {
-      for (unsigned int strip = 0; strip < _numStrips; ++strip) {
-        vkCmdDrawIndexed(commandBuffer->getCommandBuffer()[currentFrame], _numVertsPerStrip, 1,
-                         strip * _numVertsPerStrip, 0, 0);
+      for (int strip = 0; strip < _numStrips; ++strip) {
+        vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_numVertsPerStrip), 1,
+                         static_cast<uint32_t>(strip * _numVertsPerStrip), 0, 0);
       }
     } else {
       for (int i = 0; i < _numStrips; i++)
-        vkCmdDraw(commandBuffer->getCommandBuffer()[currentFrame], _numVertsPerStrip, 1, i * _numVertsPerStrip, 0);
+        vkCmdDraw(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_numVertsPerStrip), 1,
+                  static_cast<uint32_t>(i * _numVertsPerStrip), 0);
     }
   };
 
-  if (_changeMeshTriangles.size() > 0 && _changeMeshTriangles[_engineState->getFrameInFlight()]) {
+  if (!_changeMeshTriangles.empty() && _changeMeshTriangles[_engineState->getFrameInFlight()]) {
     _loadTriangles(currentFrame);
     _changeMeshTriangles[_engineState->getFrameInFlight()] = false;
   }
@@ -394,7 +400,8 @@ void TerrainCPU::draw(std::shared_ptr<CommandBuffer> commandBuffer) {
 }
 
 int TerrainDebug::_calculateTileByPosition(glm::vec3 position) {
-  auto [width, height] = _heightMap->getImageView()->getImage()->getResolution();
+  auto [width, height] = std::tuple{(_heightMap->getImageView().getImage()).getResolution().x,
+                                    (_heightMap->getImageView().getImage()).getResolution().y};
   for (int y = 0; y < _patchNumber.second; y++)
     for (int x = 0; x < _patchNumber.first; x++) {
       // define patch: 4 points (square)
@@ -416,7 +423,8 @@ int TerrainDebug::_calculateTileByPosition(glm::vec3 position) {
 }
 
 glm::ivec2 TerrainDebug::_calculatePixelByPosition(glm::vec3 position) {
-  auto [width, height] = _heightMap->getImageView()->getImage()->getResolution();
+  auto [width, height] = std::tuple{(_heightMap->getImageView().getImage()).getResolution().x,
+                                    (_heightMap->getImageView().getImage()).getResolution().y};
 
   auto leftTop = getModel() * glm::vec4(-width / 2.0f, 0.f, -height / 2.0f, 1.f);
   auto rightTop = getModel() * glm::vec4(-width / 2.0f + width, 0.f, -height / 2.0f, 1.f);
@@ -435,16 +443,18 @@ void TerrainDebug::_changeHeightmap(glm::ivec2 position, int value) {
   int result = data[index] + value;
   result = std::min(result, 255);
   result = std::max(result, 0);
-  data[index] = result;
-  data[index + 1] = result;
-  data[index + 2] = result;
-  data[index + 3] = result;
+  const auto heightValue = static_cast<uint8_t>(result);
+  data[index] = heightValue;
+  data[index + 1] = heightValue;
+  data[index + 2] = heightValue;
+  data[index + 3] = heightValue;
   _heightMapCPU->setData(data);
   _heightMapGPU->setData(_heightMapCPU->getData().get());
 }
 
 void TerrainDebug::_calculateMesh(int index) {
-  auto [width, height] = _heightMap->getImageView()->getImage()->getResolution();
+  auto [width, height] = std::tuple{(_heightMap->getImageView().getImage()).getResolution().x,
+                                    (_heightMap->getImageView().getImage()).getResolution().y};
   std::vector<Vertex3D> vertices;
   glm::vec2 scale = {(float)(width - 1) / _patchNumber.first, (float)(height - 1) / _patchNumber.second};
   glm::vec2 offset = {0.5f, 0.5f};  // to match the center of the pixels
@@ -480,6 +490,8 @@ void TerrainDebug::_calculateMesh(int index) {
 }
 
 int TerrainDebug::_saveHeightmap(std::string path) {
+  auto assetsPath = _engineState->getSettings()->getAssetsPath();
+  path = assetsPath + path;
   auto [width, height] = _heightMapCPU->getResolution();
   int channels = _heightMapCPU->getChannels();
   auto rawData = _heightMapCPU->getData().get();
@@ -488,7 +500,9 @@ int TerrainDebug::_saveHeightmap(std::string path) {
 }
 
 void TerrainDebug::_loadHeightmap(std::string path) {
-  _heightMapCPU = _gameState->getResourceManager()->loadImageCPU<uint8_t>(path + ".png");
+  auto assetsPath = _engineState->getSettings()->getAssetsPath();
+  path = assetsPath + path;
+  _heightMapCPU = _gameState->getResourceManager()->getImageManager().loadCPU<uint8_t>(path + ".png");
   _heightMapGPU->setData(_heightMapCPU->getData().get());
   // need to recreate TerrainPhysics because heightmapCPU was updated
   _terrainPhysics->reset(_heightMapCPU);
@@ -507,8 +521,8 @@ void TerrainDebug::setTessellationLevel(int min, int max) {
 }
 
 void TerrainDebug::setTesselationDistance(int min, int max) {
-  _minTesselationDistance = min;
-  _maxTesselationDistance = max;
+  _minTesselationDistance = static_cast<float>(min);
+  _maxTesselationDistance = static_cast<float>(max);
 }
 
 void TerrainDebug::setColorHeightLevels(std::array<float, 4> levels) { _heightLevels = levels; }
@@ -520,13 +534,10 @@ void TerrainDebug::setHeight(float scale, float shift) {
 
 void TerrainDebug::setMaterial(std::shared_ptr<MaterialColor> material) {
   if (_material) {
-    _material->unregisterUpdate(_descriptorSetColor);
+    for (const auto& descriptor : _descriptorSetColor) _material->unregisterUpdate(descriptor);
   }
-  material->registerUpdate(_descriptorSetColor, {{MaterialTexture::COLOR, 4}});
   _material = material;
-  for (int i = 0; i < _changedMaterial.size(); i++) {
-    _changedMaterial[i] = true;
-  }
+  std::fill(_changedMaterial.begin(), _changedMaterial.end(), true);
 }
 
 void TerrainDebug::setDrawType(DrawType drawType) { _drawType = drawType; }
@@ -545,8 +556,9 @@ std::shared_ptr<ImageCPU<uint8_t>> TerrainDebug::getHeightmap() { return _height
 
 std::optional<glm::vec3> TerrainDebug::getHitCoords() { return _hitCoords; }
 
-void TerrainGPU::_calculateMesh(std::shared_ptr<CommandBuffer> commandBuffer) {
-  auto [width, height] = _heightMap->getImageView()->getImage()->getResolution();
+void TerrainGPU::_calculateMesh() {
+  auto [width, height] = std::tuple{(_heightMap->getImageView().getImage()).getResolution().x,
+                                    (_heightMap->getImageView().getImage()).getResolution().y};
   std::vector<Vertex3D> vertices;
   glm::vec2 scale = {(float)(width - 1) / _patchNumber.first, (float)(height - 1) / _patchNumber.second};
   glm::vec2 offset = {0.5f, 0.5f};  // to match the center of the pixels
@@ -578,7 +590,7 @@ void TerrainGPU::_calculateMesh(std::shared_ptr<CommandBuffer> commandBuffer) {
       vertices.push_back(vertex4);
     }
   }
-  _mesh->setVertices(vertices, commandBuffer);
+  _mesh->setVertices(vertices);
 }
 
 void TerrainGPU::setPatchNumber(int x, int y) {
@@ -596,8 +608,8 @@ void TerrainGPU::setTessellationLevel(int min, int max) {
 }
 
 void TerrainGPU::setTesselationDistance(int min, int max) {
-  _minTesselationDistance = min;
-  _maxTesselationDistance = max;
+  _minTesselationDistance = static_cast<float>(min);
+  _maxTesselationDistance = static_cast<float>(max);
 }
 
 void TerrainGPU::setColorHeightLevels(std::array<float, 4> levels) { _heightLevels = levels; }
@@ -611,43 +623,45 @@ void TerrainGPU::enableShadow(bool enable) { _enableShadow = enable; }
 
 void TerrainGPU::enableLighting(bool enable) { _enableLighting = enable; }
 
-void TerrainGPU::setMaterial(std::shared_ptr<MaterialColor> material) {
-  if (_material) {
-    _material->unregisterUpdate(_descriptorSetColor);
+void TerrainGPU::_unregisterMaterialUpdates() {
+  if (!_material) return;
+
+  const auto unregisterDescriptors = [&](const auto& descriptorSets) {
+    for (const auto& descriptorSet : descriptorSets) {
+      if (descriptorSet) _material->unregisterUpdate(descriptorSet);
+    }
+  };
+
+  switch (_materialType) {
+    case MaterialType::COLOR:
+      unregisterDescriptors(_descriptorSetColor);
+      break;
+    case MaterialType::PHONG:
+      unregisterDescriptors(_descriptorSetPhong);
+      break;
+    case MaterialType::PBR:
+      unregisterDescriptors(_descriptorSetPBR);
+      break;
   }
-  material->registerUpdate(_descriptorSetColor, {{MaterialTexture::COLOR, 4}});
+}
+
+void TerrainGPU::setMaterial(std::shared_ptr<MaterialColor> material) {
+  _unregisterMaterialUpdates();
   _material = material;
   _materialType = MaterialType::COLOR;
-  for (int i = 0; i < _changedMaterial.size(); i++) {
-    _changedMaterial[i] = true;
-  }
+  std::fill(_changedMaterial.begin(), _changedMaterial.end(), true);
 }
 
 void TerrainGPU::setMaterial(std::shared_ptr<MaterialPhong> material) {
-  if (_material) _material->unregisterUpdate(_descriptorSetPhong);
-  material->registerUpdate(_descriptorSetPhong,
-                           {{MaterialTexture::COLOR, 4}, {MaterialTexture::NORMAL, 5}, {MaterialTexture::SPECULAR, 6}});
+  _unregisterMaterialUpdates();
   _material = material;
   _materialType = MaterialType::PHONG;
-  for (int i = 0; i < _changedMaterial.size(); i++) {
-    _changedMaterial[i] = true;
-  }
+  std::fill(_changedMaterial.begin(), _changedMaterial.end(), true);
 }
 
 void TerrainGPU::setMaterial(std::shared_ptr<MaterialPBR> material) {
-  if (_material) _material->unregisterUpdate(_descriptorSetPBR);
-  material->registerUpdate(_descriptorSetPBR, {{MaterialTexture::COLOR, 4},
-                                               {MaterialTexture::NORMAL, 5},
-                                               {MaterialTexture::METALLIC, 6},
-                                               {MaterialTexture::ROUGHNESS, 7},
-                                               {MaterialTexture::OCCLUSION, 8},
-                                               {MaterialTexture::EMISSIVE, 9},
-                                               {MaterialTexture::IBL_DIFFUSE, 10},
-                                               {MaterialTexture::IBL_SPECULAR, 11},
-                                               {MaterialTexture::BRDF_SPECULAR, 12}});
+  _unregisterMaterialUpdates();
   _material = material;
   _materialType = MaterialType::PBR;
-  for (int i = 0; i < _changedMaterial.size(); i++) {
-    _changedMaterial[i] = true;
-  }
+  std::fill(_changedMaterial.begin(), _changedMaterial.end(), true);
 }

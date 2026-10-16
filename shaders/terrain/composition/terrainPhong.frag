@@ -11,7 +11,6 @@ layout(location = 5) in mat3 fragTBN;
 layout(location = 8) in vec4 fragLightDirectionalCoord[2];
 
 layout(location = 0) out vec4 outColor;
-layout(location = 1) out vec4 outColorBloom;
 layout(set = 0, binding = 4) uniform sampler2D texSampler[4];
 layout(set = 0, binding = 5) uniform sampler2D normalSampler[4];
 layout(set = 0, binding = 6) uniform sampler2D specularSampler[4];
@@ -23,7 +22,7 @@ layout(set = 0, binding = 7) uniform Material {
     float shininess;
 } material;
 
-layout(push_constant) uniform constants {    
+layout(push_constant) uniform constants {
     layout(offset = 40) int enableShadow;
     int enableLighting;
     vec3 cameraPosition;
@@ -156,11 +155,4 @@ void main() {
             outColor *= vec4(lightFactor, 1.0);
         }
     }
-
-    // check whether fragment output is higher than threshold, if so output as brightness color
-    float brightness = dot(outColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-    if(brightness > 1.0)
-        outColorBloom = vec4(outColor.rgb, 1.0);
-    else
-        outColorBloom = vec4(0.0, 0.0, 0.0, 1.0);
 }

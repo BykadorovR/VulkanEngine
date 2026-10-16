@@ -1,25 +1,31 @@
 #pragma once
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <memory>
+#include <tuple>
+#include <vector>
 #include "Utility/EngineState.h"
-#include "Graphic/Texture.h"
+#include "Graphic/Buffer.h"
+
+import Command;
+import Texture;
 
 class Cubemap {
  private:
   std::shared_ptr<EngineState> _engineState;
-  std::shared_ptr<Image> _image;
-  std::shared_ptr<ImageView> _imageView;
+  std::shared_ptr<RenderGraph::ImageView> _imageView;
   // for each face, mip maps are stored
-  std::vector<std::vector<std::shared_ptr<ImageView>>> _imageViewSeparate;
-  std::shared_ptr<Texture> _texture;
-  std::vector<std::vector<std::shared_ptr<Texture>>> _textureSeparate;
+  std::vector<std::vector<std::shared_ptr<RenderGraph::ImageView>>> _imageViewSeparate;
+  std::shared_ptr<RenderGraph::Texture> _texture;
+  std::vector<std::vector<std::shared_ptr<RenderGraph::Texture>>> _textureSeparate;
 
  public:
-  Cubemap(std::shared_ptr<BufferImage> data,
+  Cubemap(std::shared_ptr<ImageDataBuffer> data,
           VkFormat format,
           int mipMapLevels,
           VkImageAspectFlagBits colorBits,
           VkImageUsageFlags usage,
           VkFilter filter,
-          std::shared_ptr<CommandBuffer> commandBufferTransfer,
           std::shared_ptr<EngineState> engineState);
   Cubemap(std::tuple<int, int> resolution,
           VkFormat format,
@@ -28,8 +34,8 @@ class Cubemap {
           VkImageAspectFlagBits colorBits,
           VkImageUsageFlags usage,
           VkFilter filter,
-          std::shared_ptr<CommandBuffer> commandBufferTransfer,
+          const RenderGraph::CommandBuffer* commandBufferTransfer,
           std::shared_ptr<EngineState> engineState);
-  std::shared_ptr<Texture> getTexture();
-  std::vector<std::vector<std::shared_ptr<Texture>>> getTextureSeparate();
+  std::shared_ptr<RenderGraph::Texture> getTexture();
+  std::vector<std::vector<std::shared_ptr<RenderGraph::Texture>>> getTextureSeparate();
 };

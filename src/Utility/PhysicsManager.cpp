@@ -1,6 +1,70 @@
 #include "Utility/PhysicsManager.h"
 
-PhysicsManager::PhysicsManager() {
+CustomThreadPool::CustomThreadPool(int inMaxJobs,
+                                   int inMaxBarriers,
+                                   int inNumThreads,
+                                   std::shared_ptr<Logger> logger,
+                                   std::shared_ptr<BS::thread_pool> pool) {
+  JPH::JobSystemWithBarrier::Init(inMaxBarriers);
+  _logger = logger;
+  _pool = pool;
+  _inNumThreads = inNumThreads;
+  _jobs.Init(inMaxJobs, inMaxJobs);
+}
+
+JPH::JobHandle CustomThreadPool::CreateJob(const char* inName,
+                                           JPH::ColorArg inColor,
+                                           const JobFunction& inJobFunction,
+                                           JPH::uint32 inNumDependencies) {
+  // Loop until we can get a job from the free list
+  JPH::uint32 index;
+  for (;;) {
+    index = _jobs.ConstructObject(inName, inColor, this, inJobFunction, inNumDependencies);
+    if (index != AvailableJobs::cInvalidObjectIndex) break;
+    JPH_ASSERT(false, "No jobs available!");
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+  }
+  Job* job = &_jobs.Get(index);
+
+  // Construct handle to keep a reference, the job is queued below and may immediately complete
+  JobHandle handle(job);
+
+  // If there are no dependencies, queue the job now
+  if (inNumDependencies == 0) QueueJob(job);
+
+  // Return the handle
+  return handle;
+}
+
+void CustomThreadPool::QueueJob(Job* inJob) {
+  // Exchange any job pointer we find with a nullptr
+  if (inJob != nullptr) {
+    inJob->AddRef();
+
+    static_cast<void>(_pool->submit([logger = _logger, job = inJob]() {
+      logger->begin(job->GetName(), nullptr, {1.f, 0.f, 0.f, 1.f});
+      job->Execute();
+      job->Release();
+      logger->end();
+    }));
+  }
+}
+
+void CustomThreadPool::QueueJobs(Job** inJobs, JPH::uint inNumJobs) {
+  // Queue all jobs
+  for (Job **job = inJobs, **job_end = inJobs + inNumJobs; job < job_end; ++job) {
+    QueueJob(*job);
+  }
+}
+
+int CustomThreadPool::GetMaxConcurrency() const { return _inNumThreads; }
+
+void CustomThreadPool::FreeJob(Job* inJob) { _jobs.DestructObject(inJob); }
+
+CustomThreadPool::~CustomThreadPool() {}
+
+PhysicsManager::PhysicsManager(std::shared_ptr<BS::thread_pool> pool, std::shared_ptr<EngineState> engineState) {
+  _engineState = engineState;
   // Register allocation hook. In this example we'll just let Jolt use malloc / free but you can override these if you
   // want (see Memory.h). This needs to be done before any other Jolt function is called.
   JPH::RegisterDefaultAllocator();
@@ -24,8 +88,9 @@ PhysicsManager::PhysicsManager() {
   // We need a job system that will execute physics jobs on multiple threads. Typically
   // you would implement the JobSystem interface yourself and let Jolt Physics run on top
   // of your own job scheduler. JobSystemThreadPool is an example implementation.
-  _jobSystem = std::make_shared<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers,
-                                                          JPH::thread::hardware_concurrency() - 1);
+  _jobSystem = std::make_shared<CustomThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers,
+                                                  engineState->getSettings()->getThreadsInPool(),
+                                                  engineState->getLogger(), pool);
 
   // This is the max amount of rigid bodies that you can add to the physics system. If you try to add more you'll get an
   // error. Note: This value is low because this is a simple test. For a real project use something in the order of
@@ -58,6 +123,8 @@ glm::vec3 PhysicsManager::getGravity() {
   auto gravity = _physicsSystem.GetGravity();
   return {gravity.GetX(), gravity.GetY(), gravity.GetZ()};
 }
+
+void PhysicsManager::setDeltaTime(float deltaTime) { _deltaTime = deltaTime; }
 
 float PhysicsManager::getDeltaTime() { return _deltaTime; }
 

@@ -1,14 +1,26 @@
 #pragma once
-#include "Vulkan/Buffer.h"
-#include "Vulkan/Pipeline.h"
-#include "Vulkan/Command.h"
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <utility>
+#include <vector>
+#include "Primitive/Drawable.h"
 #include "Utility/Settings.h"
 #include "Utility/GameState.h"
 #include "Graphic/Camera.h"
 #include "Graphic/LightManager.h"
 #include "Graphic/Material.h"
 #include "Primitive/Mesh.h"
-#include "Primitive/Drawable.h"
+
+import Buffer;
+import Command;
+import DescriptorBuffer;
+import Pipeline;
+import Shader;
 
 class Sprite : public Drawable, public Shadowable {
  private:
@@ -16,79 +28,71 @@ class Sprite : public Drawable, public Shadowable {
   std::shared_ptr<GameState> _gameState;
   std::vector<bool> _changedMaterialRender, _changedMaterialShadow;
   std::mutex _updateShadow;
-  std::shared_ptr<DescriptorSet> _descriptorSetColor, _descriptorSetPhong, _descriptorSetPBR;
-  std::shared_ptr<DescriptorSet> _descriptorSetCameraFull;
-  std::shared_ptr<DescriptorSetLayout> _descriptorSetLayoutNormalsMesh, _descriptorSetLayoutDepth;
-  std::shared_ptr<DescriptorSet> _descriptorSetNormalsMesh;
-  std::vector<std::vector<std::shared_ptr<DescriptorSet>>> _descriptorSetCameraDepth;
-  std::map<MaterialType, std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>>>
-      _descriptorSetLayout;
-  std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> _descriptorSetLayoutNormal;
-  std::vector<std::pair<std::string, std::shared_ptr<DescriptorSetLayout>>> _descriptorSetLayoutBRDF;
-  std::map<MaterialType, std::shared_ptr<PipelineGraphic>> _pipeline;
-  std::map<MaterialType, std::shared_ptr<PipelineGraphic>> _pipelineWireframe;
-  std::shared_ptr<RenderPass> _renderPass, _renderPassDepth;
-  std::shared_ptr<PipelineGraphic> _pipelineNormal, _pipelineTangent;
-  std::shared_ptr<PipelineGraphic> _pipelineDirectional, _pipelinePoint;
+  std::vector<std::shared_ptr<RenderGraph::DescriptorSet>> _descriptorSetColor, _descriptorSetPhong, _descriptorSetPBR;
+  std::vector<std::shared_ptr<RenderGraph::DescriptorSet>> _descriptorSetNormalsMesh;
+  std::vector<std::vector<std::vector<std::shared_ptr<RenderGraph::DescriptorSet>>>> _descriptorSetCameraDepth;
+  std::shared_ptr<RenderGraph::DescriptorSetLayout> _descriptorSetLayoutNormalsMesh, _descriptorSetLayoutDepth;
+  std::map<MaterialType, std::vector<std::shared_ptr<RenderGraph::DescriptorSetLayout>>> _descriptorSetLayout;
+  std::map<MaterialType, std::shared_ptr<RenderGraph::Pipeline>> _pipeline;
+  std::map<MaterialType, std::shared_ptr<RenderGraph::Pipeline>> _pipelineWireframe;
+  std::shared_ptr<RenderGraph::Pipeline> _pipelineNormal, _pipelineTangent;
+  std::shared_ptr<RenderGraph::Pipeline> _pipelineDirectional, _pipelinePoint;
+  std::shared_ptr<RenderGraph::Shader> _shaderNormal, _shaderTangent, _shaderDirectional, _shaderPoint;
+  std::map<MaterialType, std::shared_ptr<RenderGraph::Shader>> _shader;
 
   bool _enableShadow = true;
   bool _enableLighting = true;
   bool _enableDepth = true;
   bool _enableHUD = false;
-  std::vector<std::vector<std::vector<std::shared_ptr<Buffer>>>> _cameraUBODepth;
-  std::vector<std::shared_ptr<Buffer>> _cameraUBOFull;
+  std::vector<std::vector<std::vector<std::shared_ptr<RenderGraph::Buffer>>>> _cameraUBODepth;
+  std::vector<std::shared_ptr<RenderGraph::Buffer>> _cameraUBOFull;
   std::shared_ptr<Material> _material;
   std::shared_ptr<MaterialPhong> _defaultMaterialPhong;
-  std::shared_ptr<MaterialPBR> _defaultMaterialPBR;
-  std::shared_ptr<MaterialColor> _defaultMaterialColor;
   std::shared_ptr<MeshStatic2D> _mesh;
   MaterialType _materialType = MaterialType::PHONG;
   DrawType _drawType = DrawType::FILL;
 
-  void _updateColorDescriptor();
-  void _updatePhongDescriptor();
-  void _updatePBRDescriptor();
+  void _updateColorDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
+  void _updatePhongDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
+  void _updatePBRDescriptor(const RenderGraph::CommandBuffer& commandBuffer);
+  void _unregisterMaterialDescriptors();
 
   // we pass base color to shader so alpha part of texture doesn't cast a shadow
   template <class T>
-  void _updateShadowDescriptor(std::shared_ptr<T> material) {
+  void _updateShadowDescriptor(std::shared_ptr<T> material, const RenderGraph::CommandBuffer& commandBuffer) {
     int currentFrame = _engineState->getFrameInFlight();
     for (int d = 0; d < _engineState->getSettings()->getMaxDirectionalLights(); d++) {
-      std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor = {
-          {0,
-           {{.buffer = _cameraUBODepth[d][0][currentFrame]->getData(),
-             .offset = 0,
-             .range = _cameraUBODepth[d][0][currentFrame]->getSize()}}}};
-      std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
-          {1,
-           {{.sampler = material->getBaseColor()[0]->getSampler()->getSampler(),
-             .imageView = material->getBaseColor()[0]->getImageView()->getImageView(),
-             .imageLayout = material->getBaseColor()[0]->getImageView()->getImage()->getImageLayout()}}}};
-      _descriptorSetCameraDepth[d][0]->createCustom(currentFrame, bufferInfoColor, textureInfoColor);
+      material->unregisterUpdate(_descriptorSetCameraDepth[currentFrame][d][0]);
+      auto descriptor = std::make_shared<RenderGraph::DescriptorSet>(
+          std::vector<RenderGraph::DescriptorSetLayout*>{(_descriptorSetLayoutDepth).get()},
+          *_engineState->getDescriptorPool(), *_engineState->getDevice(), 0);
+      descriptor->add({_cameraUBODepth[currentFrame][d][0].get()});
+      descriptor->add({material->getBaseColor()[0].get()});
+      descriptor->initialize(commandBuffer);
+      material->registerUpdate(descriptor,
+                               {.frameInFlight = currentFrame, .materialInfo = {{MaterialTexture::COLOR, 1}}});
+      _descriptorSetCameraDepth[currentFrame][d][0] = std::move(descriptor);
     }
 
     for (int p = 0; p < _engineState->getSettings()->getMaxPointLights(); p++) {
       for (int f = 0; f < 6; f++) {
-        std::map<int, std::vector<VkDescriptorBufferInfo>> bufferInfoColor = {
-            {0,
-             {{.buffer = _cameraUBODepth[_engineState->getSettings()->getMaxDirectionalLights() + p][f][currentFrame]
-                             ->getData(),
-               .offset = 0,
-               .range = _cameraUBODepth[_engineState->getSettings()->getMaxDirectionalLights() + p][f][currentFrame]
-                            ->getSize()}}}};
-        std::map<int, std::vector<VkDescriptorImageInfo>> textureInfoColor = {
-            {1,
-             {{.sampler = material->getBaseColor()[0]->getSampler()->getSampler(),
-               .imageView = material->getBaseColor()[0]->getImageView()->getImageView(),
-               .imageLayout = material->getBaseColor()[0]->getImageView()->getImage()->getImageLayout()}}}};
-        _descriptorSetCameraDepth[_engineState->getSettings()->getMaxDirectionalLights() + p][f]->createCustom(
-            currentFrame, bufferInfoColor, textureInfoColor);
+        const auto lightIndex = _engineState->getSettings()->getMaxDirectionalLights() + p;
+        material->unregisterUpdate(_descriptorSetCameraDepth[currentFrame][lightIndex][f]);
+        auto descriptor = std::make_shared<RenderGraph::DescriptorSet>(
+            std::vector<RenderGraph::DescriptorSetLayout*>{(_descriptorSetLayoutDepth).get()},
+            *_engineState->getDescriptorPool(), *_engineState->getDevice(), 0);
+        descriptor->add({_cameraUBODepth[currentFrame][lightIndex][f].get()});
+        descriptor->add({material->getBaseColor()[0].get()});
+        descriptor->initialize(commandBuffer);
+        material->registerUpdate(descriptor,
+                                 {.frameInFlight = currentFrame, .materialInfo = {{MaterialTexture::COLOR, 1}}});
+        _descriptorSetCameraDepth[currentFrame][lightIndex][f] = std::move(descriptor);
       }
     }
   }
 
  public:
-  Sprite(std::shared_ptr<CommandBuffer> commandBufferTransfer,
+  Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
          std::shared_ptr<GameState> gameState,
          std::shared_ptr<EngineState> engineState);
   void enableShadow(bool enable);
@@ -104,6 +108,9 @@ class Sprite : public Drawable, public Shadowable {
   void setDrawType(DrawType drawType);
   DrawType getDrawType();
 
-  void draw(std::shared_ptr<CommandBuffer> commandBuffer) override;
-  void drawShadow(LightType lightType, int lightIndex, int face, std::shared_ptr<CommandBuffer> commandBuffer) override;
+  void draw(const RenderGraph::CommandBuffer* commandBuffer) override;
+  void drawShadow(LightType lightType,
+                  int lightIndex,
+                  int face,
+                  const RenderGraph::CommandBuffer* commandBuffer) override;
 };

@@ -36,11 +36,13 @@ void Settings::setPoolSize(int poolSizeDescriptorSets,
   _poolSizeDescriptorSets = poolSizeDescriptorSets;
 }
 
-void Settings::setBloomPasses(int number) { _bloomPasses = number; }
-
-void Settings::setClearColor(VkClearColorValue clearColor) { _clearColor = clearColor; }
-
 void Settings::setThreadsInPool(int threadsInPool) { _threadsInPool = threadsInPool; }
+
+void Settings::setAssetsPath(std::string path) { _pathAssets = path; }
+
+void Settings::setShadersPath(std::string path) { _pathShaders = path; }
+
+void Settings::setVerticalSync(bool verticalSync) { _verticalSync = verticalSync; }
 
 std::string Settings::getName() { return _name; }
 
@@ -62,8 +64,6 @@ VkFormat Settings::getDepthFormat() { return _depthFormat; }
 
 VkFormat Settings::getShadowMapFormat() { return _shadowMapFormat; }
 
-int Settings::getBloomPasses() { return _bloomPasses; }
-
 int Settings::getMaxDirectionalLights() { return _maxDirectionalLights; }
 
 int Settings::getMaxPointLights() { return _maxPointLights; }
@@ -71,8 +71,6 @@ int Settings::getMaxPointLights() { return _maxPointLights; }
 std::vector<std::tuple<int, float>> Settings::getAttenuations() { return _attenuations; }
 
 int Settings::getThreadsInPool() { return _threadsInPool; }
-
-VkClearColorValue Settings::getClearColor() { return _clearColor; }
 
 int Settings::getAnisotropicSamples() { return _anisotropicSamples; }
 
@@ -97,3 +95,9 @@ int Settings::getPoolSizeSSBO() { return _poolSizeSSBO; }
 int Settings::getPoolSizeComputeImage() { return _poolSizeComputeImage; }
 
 int Settings::getPoolSizeDescriptorSets() { return _poolSizeDescriptorSets; }
+
+std::string Settings::getAssetsPath() { return _pathAssets; }
+
+std::string Settings::getShadersPath() { return _pathShaders; }
+
+bool Settings::getVerticalSync() { return _verticalSync; }

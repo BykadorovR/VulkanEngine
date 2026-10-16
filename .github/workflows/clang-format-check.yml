@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - uses: DoozyX/clang-format-lint-action@v0.13
+    - uses: actions/checkout@v7
+    - uses: DoozyX/clang-format-lint-action@v0.20
       with:
         source: '.'
         exclude: './dependencies'
         extensions: 'h,cpp,cu,fsh,vsh,gsh'
-        clangFormatVersion: 13
+        clangFormatVersion: 17

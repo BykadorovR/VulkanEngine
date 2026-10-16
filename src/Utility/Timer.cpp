@@ -20,20 +20,21 @@ void TimerFPS::tock() {
   std::chrono::duration<double> elapsed = end - _startTimeCurrent;
   _sumTime += elapsed.count();
   if (_sumTime > 1.f) {
-    _fps = _frameCounter;
+    _fps = static_cast<int>(_frameCounter);
     _reset();
   }
 }
 
 int TimerFPS::getFPS() { return _fps; }
 
-Timer::Timer() {
+Timer::Timer(std::shared_ptr<EngineState> engineState) {
+  _engineState = engineState;
+
   _frameCounter = 0;
   _frameCounterSleep = 0;
   _elapsedCurrent = 0;
-  _FPSMaxPrevious = 0;
+  _fpsMaxPrevious = 0;
   _startTime = std::chrono::high_resolution_clock::now();
-  _logger = std::make_shared<Logger>();
 }
 
 void Timer::reset() {
@@ -50,22 +51,25 @@ void Timer::tock() {
 
   // calculate current timing for models and particle systems
   std::chrono::duration<double> elapsedCurrent = (end - _startTimeCurrent);
-  _elapsedCurrent = elapsedCurrent.count();
+  _elapsedCurrent = static_cast<float>(elapsedCurrent.count());
 }
 
 float Timer::getElapsedCurrent() { return _elapsedCurrent; }
 
-void Timer::sleep(int FPSMax) {
+void Timer::sleep(int fpsMax) {
+  auto logger = _engineState->getLogger();
   // have to reset timer if FPS has been changed
-  if (_FPSMaxPrevious && _FPSMaxPrevious != FPSMax) reset();
-  auto end = std::chrono::high_resolution_clock::now();
-  _FPSMaxPrevious = FPSMax;
-  auto elapsedSleep = std::chrono::duration_cast<std::chrono::milliseconds>(end - _startTime).count();
-  uint64_t expected = (1000.f / FPSMax) * _frameCounterSleep;
-  if (elapsedSleep < expected) {
-    _logger->begin("Sleep for: " + std::to_string(expected - elapsedSleep));
-    std::this_thread::sleep_for(std::chrono::milliseconds(expected - elapsedSleep));
-    _logger->end();
+  if (_fpsMaxPrevious && _fpsMaxPrevious != fpsMax) reset();
+  const auto end = std::chrono::high_resolution_clock::now();
+  _fpsMaxPrevious = fpsMax;
+  const auto elapsedSleep = std::chrono::duration_cast<std::chrono::milliseconds>(end - _startTime);
+  const auto expectedSleep = std::chrono::milliseconds{
+      static_cast<std::chrono::milliseconds::rep>((1000.0 / fpsMax) * _frameCounterSleep)};
+  if (elapsedSleep < expectedSleep) {
+    const auto sleepDuration = expectedSleep - elapsedSleep;
+    logger->begin("Sleep for: " + std::to_string(sleepDuration.count()));
+    std::this_thread::sleep_for(sleepDuration);
+    logger->end();
   }
 }
 

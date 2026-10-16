@@ -1,88 +1,71 @@
 #pragma once
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
 #include <memory>
 #include <vector>
-#include "Graphic/Texture.h"
+#include "Primitive/Drawable.h"
 #include "Primitive/Cubemap.h"
 #include "Utility/Settings.h"
 #include "Graphic/Camera.h"
 #include "Utility/Logger.h"
-#include "Vulkan/Render.h"
 #include "Graphic/Blur.h"
 
-class DirectionalShadow {
+import Command;
+import Graph;
+import Texture;
+
+class DirectionalShadowResources {
  protected:
   std::shared_ptr<EngineState> _engineState;
-  std::shared_ptr<CommandBuffer> _commandBufferDirectional;
-  std::shared_ptr<Logger> _loggerDirectional;
-  std::vector<std::shared_ptr<Texture>> _shadowMapTexture;
-  std::vector<std::shared_ptr<Framebuffer>> _shadowMapFramebuffer;
+  std::vector<std::shared_ptr<RenderGraph::Texture>> _shadowMapTexture;
 
  public:
-  DirectionalShadow(std::shared_ptr<CommandBuffer> commandBufferTransfer,
-                    std::shared_ptr<RenderPass> renderPass,
-                    std::shared_ptr<EngineState> engineState);
-  std::vector<std::shared_ptr<Texture>> getShadowMapTexture();
-
-  std::shared_ptr<CommandBuffer> getShadowMapCommandBuffer();
-  std::shared_ptr<Logger> getShadowMapLogger();
-  std::vector<std::shared_ptr<Framebuffer>> getShadowMapFramebuffer();
+  DirectionalShadowResources(const RenderGraph::CommandBuffer* commandBufferTransfer,
+                             std::shared_ptr<EngineState> engineState);
+  std::vector<std::shared_ptr<RenderGraph::Texture>> getShadowMapTexture();
 };
 
-class DirectionalShadowBlur {
- protected:
-  std::shared_ptr<CommandBuffer> _commandBufferDirectional;
-  std::shared_ptr<Logger> _loggerDirectional;
-  std::vector<std::shared_ptr<Texture>> _textureOut;
-  std::vector<std::vector<std::shared_ptr<Framebuffer>>> _shadowMapFramebuffer;
-  std::shared_ptr<BlurGraphic> _blur;
-
- public:
-  DirectionalShadowBlur(std::vector<std::shared_ptr<Texture>> textureIn,
-                        std::shared_ptr<CommandBuffer> commandBufferTransfer,
-                        std::shared_ptr<RenderPass> renderPass,
-                        std::shared_ptr<EngineState> engineState);
-  std::shared_ptr<CommandBuffer> getShadowMapBlurCommandBuffer();
-  std::shared_ptr<Logger> getShadowMapBlurLogger();
-  std::vector<std::vector<std::shared_ptr<Framebuffer>>> getShadowMapBlurFramebuffer();
-  std::shared_ptr<BlurGraphic> getBlur();
-  std::vector<std::shared_ptr<Texture>> getShadowMapBlurTextureOut();
-};
-
-class PointShadow {
+class PointShadowResources {
  protected:
   std::shared_ptr<EngineState> _engineState;
-  std::vector<std::shared_ptr<CommandBuffer>> _commandBufferPoint;
-  std::vector<std::shared_ptr<Logger>> _loggerPoint;
   std::vector<std::shared_ptr<Cubemap>> _shadowMapCubemap;
-  std::vector<std::vector<std::shared_ptr<Framebuffer>>> _shadowMapFramebuffer;
-  std::shared_ptr<BlurGraphic> _blur;
 
  public:
-  PointShadow(std::shared_ptr<CommandBuffer> commandBufferTransfer,
-              std::shared_ptr<RenderPass> renderPass,
-              std::shared_ptr<EngineState> engineState);
+  PointShadowResources(const RenderGraph::CommandBuffer* commandBufferTransfer,
+                       std::shared_ptr<EngineState> engineState);
   std::vector<std::shared_ptr<Cubemap>> getShadowMapCubemap();
-  std::vector<std::shared_ptr<CommandBuffer>> getShadowMapCommandBuffer();
-  std::vector<std::shared_ptr<Logger>> getShadowMapLogger();
-  std::vector<std::vector<std::shared_ptr<Framebuffer>>> getShadowMapFramebuffer();
 };
 
-class PointShadowBlur {
- protected:
-  std::vector<std::shared_ptr<CommandBuffer>> _commandBufferPoint;
-  std::vector<std::shared_ptr<Logger>> _loggerPoint;
-  std::vector<std::shared_ptr<Cubemap>> _cubemapOut;
-  std::vector<std::vector<std::vector<std::shared_ptr<Framebuffer>>>> _shadowMapFramebuffer;
-  std::vector<std::shared_ptr<BlurGraphic>> _blur;
+class DirectionalShadowRenderer final : public RenderGraph::GraphElement {
+ private:
+  const std::vector<std::shared_ptr<Shadowable>>* _shadowables;
+  std::shared_ptr<EngineState> _engineState;
+  int _shadowIndex;
 
  public:
-  PointShadowBlur(std::vector<std::shared_ptr<Cubemap>> cubemapIn,
-                  std::shared_ptr<CommandBuffer> commandBufferTransfer,
-                  std::shared_ptr<RenderPass> renderPass,
-                  std::shared_ptr<EngineState> engineState);
-  std::vector<std::shared_ptr<CommandBuffer>> getShadowMapBlurCommandBuffer();
-  std::vector<std::shared_ptr<Logger>> getShadowMapBlurLogger();
-  std::vector<std::vector<std::vector<std::shared_ptr<Framebuffer>>>> getShadowMapBlurFramebuffer();
-  std::vector<std::shared_ptr<BlurGraphic>> getBlur();
-  std::vector<std::shared_ptr<Cubemap>> getShadowMapBlurCubemapOut();
+  DirectionalShadowRenderer(int shadowIndex,
+                            const std::vector<std::shared_ptr<Shadowable>>& shadowables,
+                            std::shared_ptr<EngineState> engineState);
+  void draw(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) override;
+  void update(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) override;
+  void reset(const std::vector<std::shared_ptr<RenderGraph::ImageView>>& swapchain) override;
+};
+
+class PointShadowRenderer final : public RenderGraph::GraphElement {
+ private:
+  std::shared_ptr<PointShadowResources> _pointShadowResources;
+  const std::vector<std::shared_ptr<Shadowable>>* _shadowables;
+  std::shared_ptr<EngineState> _engineState;
+  int _shadowIndex;
+  int _face;
+
+ public:
+  PointShadowRenderer(std::shared_ptr<PointShadowResources> pointShadowResources,
+                      int shadowIndex,
+                      int face,
+                      const std::vector<std::shared_ptr<Shadowable>>& shadowables,
+                      std::shared_ptr<EngineState> engineState);
+  void draw(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) override;
+  void update(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) override;
+  void reset(const std::vector<std::shared_ptr<RenderGraph::ImageView>>& swapchain) override;
 };

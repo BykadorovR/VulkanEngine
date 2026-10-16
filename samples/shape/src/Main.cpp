@@ -30,7 +30,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Shape");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -46,10 +45,14 @@ Main::Main() {
   settings->setMaxFramesInFlight(2);
   settings->setThreadsInPool(6);
   settings->setDesiredFPS(1000);
+  settings->setAssetsPath("../assets/");
+  settings->setShadersPath("../assets/");
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _core->createGUI();
+  _core->createPostprocessing();
+
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setSpeed(0.05f, 0.01f);
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
@@ -66,29 +69,24 @@ Main::Main() {
   _directionalLight->setColor(glm::vec3(1.f, 1.f, 1.f));
   _directionalLight->getCamera()->setPosition(glm::vec3(0.f, 20.f, 0.f));
 
+  auto meshCubePlain = std::make_shared<MeshCube>(_core->getEngineState());
   // cube colored light
-  _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE);
-  _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightVertical->getMesh()->setColor(
-      std::vector{_cubeColoredLightVertical->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(_cubeColoredLightVertical);
+  {
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
+    _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
+    _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    _core->addDrawable(_cubeColoredLightVertical);
 
-  _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE);
-  _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightHorizontal->getMesh()->setColor(
-      std::vector{_cubeColoredLightHorizontal->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(_cubeColoredLightHorizontal);
+    _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE, meshCube);
+    _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    _core->addDrawable(_cubeColoredLightHorizontal);
 
-  auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE);
-  cubeColoredLightDirectional->getMesh()->setColor(
-      std::vector{cubeColoredLightDirectional->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
-  _core->addDrawable(cubeColoredLightDirectional);
-
+    auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE, meshCube);
+    cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
+    _core->addDrawable(cubeColoredLightDirectional);
+  }
   // lines
   auto lineVertical = _core->createLine();
   lineVertical->getMesh()->setColor({glm::vec3(1.f, 0.f, 0.f), glm::vec3(0.f, 1.f, 0.f)});
@@ -101,111 +99,112 @@ Main::Main() {
   _core->addDrawable(lineHorizontal);
 
   // cube colored
-  auto cubeColored = _core->createShape3D(ShapeType::CUBE);
-  cubeColored->setTranslate(glm::vec3(0.f, 3.f, -3.f));
-  cubeColored->getMesh()->setColor(
-      std::vector{cubeColored->getMesh()->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(cubeColored);
-  // cube textured
+  {
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
+    auto cubeColored = _core->createShape3D(ShapeType::CUBE, meshCube);
+    cubeColored->setTranslate(glm::vec3(0.f, 3.f, -3.f));
+    _core->addDrawable(cubeColored);
+  }
+  // color material
   auto cubemap = _core->createCubemap(
       std::vector<std::string>{"../assets/right.jpg", "../assets/left.jpg", "../assets/top.jpg", "../assets/bottom.jpg",
                                "../assets/front.jpg", "../assets/back.jpg"},
       settings->getLoadTextureColorFormat(), mipMapLevels);
   auto materialCubeTextured = _core->createMaterialColor(MaterialTarget::SIMPLE);
   materialCubeTextured->setBaseColor({cubemap->getTexture()});
-  _cubeTextured = _core->createShape3D(ShapeType::CUBE);
-  _cubeTextured->setMaterial(materialCubeTextured);
-  _cubeTextured->setTranslate(glm::vec3(0.f, 0.f, -3.f));
-  _core->addDrawable(_cubeTextured);
-
-  //  cube Phong
+  // Phong material
   auto cubemapColorPhong = _core->createCubemap(
       std::vector<std::string>{"../assets/brickwall.jpg", "../assets/brickwall.jpg", "../assets/brickwall.jpg",
                                "../assets/brickwall.jpg", "../assets/brickwall.jpg", "../assets/brickwall.jpg"},
       settings->getLoadTextureColorFormat(), mipMapLevels);
-
   auto cubemapNormalPhong = _core->createCubemap(
       std::vector<std::string>{"../assets/brickwall_normal.jpg", "../assets/brickwall_normal.jpg",
                                "../assets/brickwall_normal.jpg", "../assets/brickwall_normal.jpg",
                                "../assets/brickwall_normal.jpg", "../assets/brickwall_normal.jpg"},
       settings->getLoadTextureAuxilaryFormat(), mipMapLevels);
-
   auto materialCubePhong = _core->createMaterialPhong(MaterialTarget::SIMPLE);
   materialCubePhong->setBaseColor({cubemapColorPhong->getTexture()});
   materialCubePhong->setNormal({cubemapNormalPhong->getTexture()});
   materialCubePhong->setSpecular({_core->getResourceManager()->getCubemapZero()->getTexture()});
-
-  auto cubeTexturedPhong = _core->createShape3D(ShapeType::CUBE);
-  cubeTexturedPhong->setMaterial(materialCubePhong);
-  cubeTexturedPhong->setTranslate(glm::vec3(0.f, -3.f, -3.f));
-  _core->addDrawable(cubeTexturedPhong);
-
+  // cube textured
+  {
+    _cubeTextured = _core->createShape3D(ShapeType::CUBE, meshCubePlain);
+    _cubeTextured->setMaterial(materialCubeTextured);
+    _cubeTextured->setTranslate(glm::vec3(0.f, 0.f, -3.f));
+    _core->addDrawable(_cubeTextured);
+  }
+  //  cube Phong
+  {
+    auto cubeTexturedPhong = _core->createShape3D(ShapeType::CUBE, meshCubePlain);
+    cubeTexturedPhong->setMaterial(materialCubePhong);
+    cubeTexturedPhong->setTranslate(glm::vec3(0.f, -3.f, -3.f));
+    _core->addDrawable(cubeTexturedPhong);
+  }
   // cube colored wireframe
-  auto cubeColoredWireframe = _core->createShape3D(ShapeType::CUBE);
-  cubeColoredWireframe->setTranslate(glm::vec3(3.f, 3.f, -3.f));
-  cubeColoredWireframe->setDrawType(DrawType::WIREFRAME);
-  cubeColoredWireframe->getMesh()->setColor(
-      std::vector{cubeColoredWireframe->getMesh()->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(cubeColoredWireframe);
+  {
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
+    auto cubeColoredWireframe = _core->createShape3D(ShapeType::CUBE, meshCube);
+    cubeColoredWireframe->setTranslate(glm::vec3(3.f, 3.f, -3.f));
+    cubeColoredWireframe->setDrawType(DrawType::WIREFRAME);
+    _core->addDrawable(cubeColoredWireframe);
+  }
+  {
+    // cube texture wireframe
+    _cubeTexturedWireframe = _core->createShape3D(ShapeType::CUBE, meshCubePlain);
+    _cubeTexturedWireframe->setDrawType(DrawType::WIREFRAME);
+    _cubeTexturedWireframe->setMaterial(materialCubeTextured);
+    _cubeTexturedWireframe->setTranslate(glm::vec3(3.f, 0.f, -3.f));
+    _core->addDrawable(_cubeTexturedWireframe);
+  }
+  {
+    // cube Phong wireframe
+    auto cubeTexturedWireframePhong = _core->createShape3D(ShapeType::CUBE, meshCubePlain);
+    cubeTexturedWireframePhong->setDrawType(DrawType::WIREFRAME);
+    cubeTexturedWireframePhong->setMaterial(materialCubePhong);
+    cubeTexturedWireframePhong->setTranslate(glm::vec3(3.f, -3.f, -3.f));
+    _core->addDrawable(cubeTexturedWireframePhong);
+  }
+  {
+    // cube Phong mesh normal
+    auto cubeTexturedPhongNormalMesh = _core->createShape3D(ShapeType::CUBE, meshCubePlain);
+    cubeTexturedPhongNormalMesh->setDrawType(DrawType::NORMAL);
+    cubeTexturedPhongNormalMesh->setTranslate(glm::vec3(-3.f, -3.f, -3.f));
+    _core->addDrawable(cubeTexturedPhongNormalMesh);
+  }
+  {
+    // cube Color fragment normal
+    auto materialCubeTexturedNormalFragment = _core->createMaterialColor(MaterialTarget::SIMPLE);
+    materialCubeTexturedNormalFragment->setBaseColor({cubemapNormalPhong->getTexture()});
+    auto cubeTexturedNormalFragment = _core->createShape3D(ShapeType::CUBE, meshCubePlain);
+    cubeTexturedNormalFragment->setMaterial(materialCubeTexturedNormalFragment);
+    cubeTexturedNormalFragment->setTranslate(glm::vec3(-3.f, -3.f, -3.f));
+    _core->addDrawable(cubeTexturedNormalFragment);
+  }
+  {
+    // cube Phong: specular without normal
+    auto cubemapColorPhongContainer = _core->createCubemap(
+        std::vector<std::string>{"../assets/container.png", "../assets/container.png", "../assets/container.png",
+                                 "../assets/container.png", "../assets/container.png", "../assets/container.png"},
+        settings->getLoadTextureColorFormat(), mipMapLevels);
 
-  // cube texture wireframe
-  _cubeTexturedWireframe = _core->createShape3D(ShapeType::CUBE);
-  _cubeTexturedWireframe->setDrawType(DrawType::WIREFRAME);
-  _cubeTexturedWireframe->setMaterial(materialCubeTextured);
-  _cubeTexturedWireframe->setTranslate(glm::vec3(3.f, 0.f, -3.f));
-  _core->addDrawable(_cubeTexturedWireframe);
+    auto cubemapSpecularPhong = _core->createCubemap(
+        std::vector<std::string>{"../assets/container_specular.png", "../assets/container_specular.png",
+                                 "../assets/container_specular.png", "../assets/container_specular.png",
+                                 "../assets/container_specular.png", "../assets/container_specular.png"},
+        settings->getLoadTextureAuxilaryFormat(), mipMapLevels);
+    auto materialCubePhongSpecular = _core->createMaterialPhong(MaterialTarget::SIMPLE);
+    materialCubePhongSpecular->setBaseColor({cubemapColorPhongContainer->getTexture()});
+    materialCubePhongSpecular->setNormal({_core->getResourceManager()->getCubemapZero()->getTexture()});
+    materialCubePhongSpecular->setSpecular({cubemapSpecularPhong->getTexture()});
+    materialCubePhongSpecular->setCoefficients(glm::vec3(0.f), glm::vec3(0.2f), glm::vec3(1.f), 32);
 
-  // cube Phong wireframe
-  auto cubeTexturedWireframePhong = _core->createShape3D(ShapeType::CUBE);
-  cubeTexturedWireframePhong->setDrawType(DrawType::WIREFRAME);
-  cubeTexturedWireframePhong->setMaterial(materialCubePhong);
-  cubeTexturedWireframePhong->setTranslate(glm::vec3(3.f, -3.f, -3.f));
-  _core->addDrawable(cubeTexturedWireframePhong);
-
-  // cube Phong mesh normal
-  auto cubeTexturedPhongNormalMesh = _core->createShape3D(ShapeType::CUBE);
-  cubeTexturedPhongNormalMesh->setDrawType(DrawType::NORMAL);
-  cubeTexturedPhongNormalMesh->setTranslate(glm::vec3(-3.f, -3.f, -3.f));
-  _core->addDrawable(cubeTexturedPhongNormalMesh);
-
-  // cube Color fragment normal
-  auto cubemapNormal = _core->createCubemap(
-      std::vector<std::string>{"../assets/brickwall_normal.jpg", "../assets/brickwall_normal.jpg",
-                               "../assets/brickwall_normal.jpg", "../assets/brickwall_normal.jpg",
-                               "../assets/brickwall_normal.jpg", "../assets/brickwall_normal.jpg"},
-      settings->getLoadTextureAuxilaryFormat(), mipMapLevels);
-  auto materialCubeTexturedNormalFragment = _core->createMaterialColor(MaterialTarget::SIMPLE);
-  materialCubeTexturedNormalFragment->setBaseColor({cubemapNormal->getTexture()});
-  auto cubeTexturedNormalFragment = _core->createShape3D(ShapeType::CUBE);
-  cubeTexturedNormalFragment->setMaterial(materialCubeTexturedNormalFragment);
-  cubeTexturedNormalFragment->setTranslate(glm::vec3(-3.f, -3.f, -3.f));
-  _core->addDrawable(cubeTexturedNormalFragment);
-
-  // cube Phong: specular without normal
-  auto cubemapColorPhongContainer = _core->createCubemap(
-      std::vector<std::string>{"../assets/container.png", "../assets/container.png", "../assets/container.png",
-                               "../assets/container.png", "../assets/container.png", "../assets/container.png"},
-      settings->getLoadTextureColorFormat(), mipMapLevels);
-
-  auto cubemapSpecularPhong = _core->createCubemap(
-      std::vector<std::string>{"../assets/container_specular.png", "../assets/container_specular.png",
-                               "../assets/container_specular.png", "../assets/container_specular.png",
-                               "../assets/container_specular.png", "../assets/container_specular.png"},
-      settings->getLoadTextureAuxilaryFormat(), mipMapLevels);
-  auto materialCubePhongSpecular = _core->createMaterialPhong(MaterialTarget::SIMPLE);
-  materialCubePhongSpecular->setBaseColor({cubemapColorPhongContainer->getTexture()});
-  materialCubePhongSpecular->setNormal({_core->getResourceManager()->getCubemapZero()->getTexture()});
-  materialCubePhongSpecular->setSpecular({cubemapSpecularPhong->getTexture()});
-  materialCubePhongSpecular->setCoefficients(glm::vec3(0.f), glm::vec3(0.2f), glm::vec3(1.f), 32);
-
-  auto cubeTexturedPhongSpecular = _core->createShape3D(ShapeType::CUBE);
-  cubeTexturedPhongSpecular->setMaterial(materialCubePhongSpecular);
-  cubeTexturedPhongSpecular->setTranslate(glm::vec3(0.f, -6.f, -3.f));
-  _core->addDrawable(cubeTexturedPhongSpecular);
-
-  // cube PBR
+    auto cubeTexturedPhongSpecular = _core->createShape3D(ShapeType::CUBE, meshCubePlain);
+    cubeTexturedPhongSpecular->setMaterial(materialCubePhongSpecular);
+    cubeTexturedPhongSpecular->setTranslate(glm::vec3(0.f, -6.f, -3.f));
+    _core->addDrawable(cubeTexturedPhongSpecular);
+  }
   // TODO: fix mipmaping
   auto cubemapColorPBR = _core->createCubemap(
       std::vector<std::string>{"../assets/rustediron2_basecolor.png", "../assets/rustediron2_basecolor.png",
@@ -238,37 +237,33 @@ Main::Main() {
   materialCubePBR->setDiffuseIBL(_core->getResourceManager()->getCubemapZero()->getTexture());
   materialCubePBR->setSpecularIBL(_core->getResourceManager()->getCubemapZero()->getTexture(),
                                   _core->getResourceManager()->getTextureZero());
-
-  auto cubeTexturedPBR = _core->createShape3D(ShapeType::CUBE);
-  cubeTexturedPBR->setMaterial(materialCubePBR);
-  cubeTexturedPBR->setTranslate(glm::vec3(0.f, 6.f, -3.f));
-  _core->addDrawable(cubeTexturedPBR);
-
-  // cube PBR wireframe
-  auto cubeWireframePBR = _core->createShape3D(ShapeType::CUBE);
-  cubeWireframePBR->setMaterial(materialCubePBR);
-  cubeWireframePBR->setDrawType(DrawType::WIREFRAME);
-  cubeWireframePBR->setTranslate(glm::vec3(3.f, 6.f, -3.f));
-  _core->addDrawable(cubeWireframePBR);
-
-  // sphere colored
-  auto sphereColored = _core->createShape3D(ShapeType::SPHERE);
-  sphereColored->getMesh()->setColor(
-      std::vector{sphereColored->getMesh()->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)},
-      _core->getCommandBufferApplication());
-  sphereColored->setTranslate(glm::vec3(0.f, 3.f, 3.f));
-  _core->addDrawable(sphereColored);
-
-  // sphere textured
+  {
+    // cube PBR
+    auto cubeTexturedPBR = _core->createShape3D(ShapeType::CUBE, meshCubePlain);
+    cubeTexturedPBR->setMaterial(materialCubePBR);
+    cubeTexturedPBR->setTranslate(glm::vec3(0.f, 6.f, -3.f));
+    _core->addDrawable(cubeTexturedPBR);
+  }
+  {
+    // cube PBR wireframe
+    auto cubeWireframePBR = _core->createShape3D(ShapeType::CUBE, meshCubePlain);
+    cubeWireframePBR->setMaterial(materialCubePBR);
+    cubeWireframePBR->setDrawType(DrawType::WIREFRAME);
+    cubeWireframePBR->setTranslate(glm::vec3(3.f, 6.f, -3.f));
+    _core->addDrawable(cubeWireframePBR);
+  }
+  auto meshSpherePlain = std::make_shared<MeshSphere>(_core->getEngineState());
+  {
+    // sphere colored
+    auto meshSpere = std::make_shared<MeshSphere>(_core->getEngineState());
+    meshSpere->setColor(std::vector{meshSpere->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)});
+    auto sphereColored = _core->createShape3D(ShapeType::SPHERE, meshSpere);
+    sphereColored->setTranslate(glm::vec3(0.f, 3.f, 3.f));
+    _core->addDrawable(sphereColored);
+  }
   auto sphereTexture = _core->createTexture("../assets/right.jpg", settings->getLoadTextureColorFormat(), mipMapLevels);
   auto materialSphereTextured = _core->createMaterialColor(MaterialTarget::SIMPLE);
   materialSphereTextured->setBaseColor({sphereTexture});
-  auto sphereTextured = _core->createShape3D(ShapeType::SPHERE);
-  sphereTextured->setMaterial(materialSphereTextured);
-  sphereTextured->setTranslate(glm::vec3(0.f, 0.f, 3.f));
-  _core->addDrawable(sphereTextured);
-
-  // sphere Phong
   auto sphereTexturePhong = _core->createTexture("../assets/brickwall.jpg", settings->getLoadTextureColorFormat(),
                                                  mipMapLevels);
   auto sphereNormalPhong = _core->createTexture("../assets/brickwall_normal.jpg",
@@ -277,67 +272,80 @@ Main::Main() {
   materialSpherePhong->setBaseColor({sphereTexturePhong});
   materialSpherePhong->setNormal({sphereNormalPhong});
   materialSpherePhong->setSpecular({_core->getResourceManager()->getTextureZero()});
+  {
+    // sphere textured
+    auto sphereTextured = _core->createShape3D(ShapeType::SPHERE, meshSpherePlain);
+    sphereTextured->setMaterial(materialSphereTextured);
+    sphereTextured->setTranslate(glm::vec3(0.f, 0.f, 3.f));
+    _core->addDrawable(sphereTextured);
+  }
+  {
+    // sphere Phong
+    auto sphereTexturedPhong = _core->createShape3D(ShapeType::SPHERE, meshSpherePlain);
+    sphereTexturedPhong->setMaterial(materialSpherePhong);
+    sphereTexturedPhong->setTranslate(glm::vec3(0.f, -3.f, 3.f));
+    _core->addDrawable(sphereTexturedPhong);
+  }
+  {
+    // sphere colored wireframe
+    auto meshSphere = std::make_shared<MeshSphere>(_core->getEngineState());
+    meshSphere->setColor(std::vector{meshSphere->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)});
 
-  auto sphereTexturedPhong = _core->createShape3D(ShapeType::SPHERE);
-  sphereTexturedPhong->setMaterial(materialSpherePhong);
-  sphereTexturedPhong->setTranslate(glm::vec3(0.f, -3.f, 3.f));
-  _core->addDrawable(sphereTexturedPhong);
+    auto sphereColoredWireframe = _core->createShape3D(ShapeType::SPHERE, meshSphere);
+    sphereColoredWireframe->setDrawType(DrawType::WIREFRAME);
+    sphereColoredWireframe->setTranslate(glm::vec3(3.f, 3.f, 3.f));
+    _core->addDrawable(sphereColoredWireframe);
+  }
+  {
+    // sphere texture wireframe
+    auto sphereTexturedWireframe = _core->createShape3D(ShapeType::SPHERE, meshSpherePlain);
+    sphereTexturedWireframe->setDrawType(DrawType::WIREFRAME);
+    sphereTexturedWireframe->setMaterial(materialSphereTextured);
+    sphereTexturedWireframe->setTranslate(glm::vec3(3.f, 0.f, 3.f));
+    _core->addDrawable(sphereTexturedWireframe);
+  }
+  {
+    // sphere Phong wireframe
+    auto sphereTexturedWireframePhong = _core->createShape3D(ShapeType::SPHERE, meshSpherePlain);
+    sphereTexturedWireframePhong->setDrawType(DrawType::WIREFRAME);
+    sphereTexturedWireframePhong->setMaterial(materialSpherePhong);
+    sphereTexturedWireframePhong->setTranslate(glm::vec3(3.f, -3.f, 3.f));
+    _core->addDrawable(sphereTexturedWireframePhong);
+  }
+  {
+    // sphere Phong mesh normal
+    auto sphereTexturedPhongNormalMesh = _core->createShape3D(ShapeType::SPHERE, meshSpherePlain);
+    sphereTexturedPhongNormalMesh->setDrawType(DrawType::NORMAL);
+    sphereTexturedPhongNormalMesh->setTranslate(glm::vec3(-3.f, -3.f, 3.f));
+    _core->addDrawable(sphereTexturedPhongNormalMesh);
+  }
+  {
+    // sphere Color fragment normal
+    auto materialSphereTexturedNormalFragment = _core->createMaterialColor(MaterialTarget::SIMPLE);
+    materialSphereTexturedNormalFragment->setBaseColor({sphereNormalPhong});
+    auto sphereTexturedNormalFragment = _core->createShape3D(ShapeType::SPHERE, meshSpherePlain);
+    sphereTexturedNormalFragment->setMaterial(materialSphereTexturedNormalFragment);
+    sphereTexturedNormalFragment->setTranslate(glm::vec3(-3.f, -3.f, 3.f));
+    _core->addDrawable(sphereTexturedNormalFragment);
+  }
+  {
+    // cube Phong: specular without normal
+    auto sphereColorPhongContainer = _core->createTexture("../assets/container.png",
+                                                          settings->getLoadTextureColorFormat(), mipMapLevels);
+    auto sphereSpecularPhongContainer = _core->createTexture("../assets/container_specular.png",
+                                                             settings->getLoadTextureAuxilaryFormat(), mipMapLevels);
+    auto materialSpherePhongSpecular = _core->createMaterialPhong(MaterialTarget::SIMPLE);
+    materialSpherePhongSpecular->setBaseColor({sphereColorPhongContainer});
+    materialSpherePhongSpecular->setNormal({_core->getResourceManager()->getTextureZero()});
+    materialSpherePhongSpecular->setSpecular({sphereSpecularPhongContainer});
+    materialSpherePhongSpecular->setCoefficients(glm::vec3(0.f), glm::vec3(0.2f), glm::vec3(1.f), 32);
 
-  // sphere colored wireframe
-  auto sphereColoredWireframe = _core->createShape3D(ShapeType::SPHERE);
-  sphereColoredWireframe->setDrawType(DrawType::WIREFRAME);
-  sphereColoredWireframe->getMesh()->setColor(
-      std::vector{sphereColoredWireframe->getMesh()->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)},
-      _core->getCommandBufferApplication());
-  sphereColoredWireframe->setTranslate(glm::vec3(3.f, 3.f, 3.f));
-  _core->addDrawable(sphereColoredWireframe);
-
-  // sphere texture wireframe
-  auto sphereTexturedWireframe = _core->createShape3D(ShapeType::SPHERE);
-  sphereTexturedWireframe->setDrawType(DrawType::WIREFRAME);
-  sphereTexturedWireframe->setMaterial(materialSphereTextured);
-  sphereTexturedWireframe->setTranslate(glm::vec3(3.f, 0.f, 3.f));
-  _core->addDrawable(sphereTexturedWireframe);
-
-  // sphere Phong wireframe
-  auto sphereTexturedWireframePhong = _core->createShape3D(ShapeType::SPHERE);
-  sphereTexturedWireframePhong->setDrawType(DrawType::WIREFRAME);
-  sphereTexturedWireframePhong->setMaterial(materialSpherePhong);
-  sphereTexturedWireframePhong->setTranslate(glm::vec3(3.f, -3.f, 3.f));
-  _core->addDrawable(sphereTexturedWireframePhong);
-
-  // sphere Phong mesh normal
-  auto sphereTexturedPhongNormalMesh = _core->createShape3D(ShapeType::SPHERE);
-  sphereTexturedPhongNormalMesh->setDrawType(DrawType::NORMAL);
-  sphereTexturedPhongNormalMesh->setTranslate(glm::vec3(-3.f, -3.f, 3.f));
-  _core->addDrawable(sphereTexturedPhongNormalMesh);
-
-  // sphere Color fragment normal
-  auto materialSphereTexturedNormalFragment = _core->createMaterialColor(MaterialTarget::SIMPLE);
-  materialSphereTexturedNormalFragment->setBaseColor({sphereNormalPhong});
-  auto sphereTexturedNormalFragment = _core->createShape3D(ShapeType::SPHERE);
-  sphereTexturedNormalFragment->setMaterial(materialSphereTexturedNormalFragment);
-  sphereTexturedNormalFragment->setTranslate(glm::vec3(-3.f, -3.f, 3.f));
-  _core->addDrawable(sphereTexturedNormalFragment);
-
-  // cube Phong: specular without normal
-  auto sphereColorPhongContainer = _core->createTexture("../assets/container.png",
-                                                        settings->getLoadTextureColorFormat(), mipMapLevels);
-  auto sphereSpecularPhongContainer = _core->createTexture("../assets/container_specular.png",
-                                                           settings->getLoadTextureAuxilaryFormat(), mipMapLevels);
-  auto materialSpherePhongSpecular = _core->createMaterialPhong(MaterialTarget::SIMPLE);
-  materialSpherePhongSpecular->setBaseColor({sphereColorPhongContainer});
-  materialSpherePhongSpecular->setNormal({_core->getResourceManager()->getTextureZero()});
-  materialSpherePhongSpecular->setSpecular({sphereSpecularPhongContainer});
-  materialSpherePhongSpecular->setCoefficients(glm::vec3(0.f), glm::vec3(0.2f), glm::vec3(1.f), 32);
-
-  auto sphereTexturedPhongSpecular = _core->createShape3D(ShapeType::SPHERE);
-  sphereTexturedPhongSpecular->setMaterial(materialSpherePhongSpecular);
-  sphereTexturedPhongSpecular->setTranslate(glm::vec3(0.f, -6.f, 3.f));
-  _core->addDrawable(sphereTexturedPhongSpecular);
-
+    auto sphereTexturedPhongSpecular = _core->createShape3D(ShapeType::SPHERE, meshSpherePlain);
+    sphereTexturedPhongSpecular->setMaterial(materialSpherePhongSpecular);
+    sphereTexturedPhongSpecular->setTranslate(glm::vec3(0.f, -6.f, 3.f));
+    _core->addDrawable(sphereTexturedPhongSpecular);
+  }
   // TODO: color is not so bright in comparison with cube
-  // sphere PBR
   auto sphereColorPBR = _core->createTexture("../assets/rustediron2_basecolor.png",
                                              settings->getLoadTextureColorFormat(), mipMapLevels);
   auto sphereNormalPBR = _core->createTexture("../assets/rustediron2_normal.png",
@@ -357,19 +365,21 @@ Main::Main() {
   materialSpherePBR->setDiffuseIBL(_core->getResourceManager()->getCubemapZero()->getTexture());
   materialSpherePBR->setSpecularIBL(_core->getResourceManager()->getCubemapZero()->getTexture(),
                                     _core->getResourceManager()->getTextureZero());
-
-  auto sphereTexturedPBR = _core->createShape3D(ShapeType::SPHERE);
-  sphereTexturedPBR->setMaterial(materialSpherePBR);
-  sphereTexturedPBR->setTranslate(glm::vec3(0.f, 6.f, 3.f));
-  _core->addDrawable(sphereTexturedPBR);
-
-  // sphere PBR wireframe
-  auto sphereWireframePBR = _core->createShape3D(ShapeType::SPHERE);
-  sphereWireframePBR->setMaterial(materialSpherePBR);
-  sphereWireframePBR->setDrawType(DrawType::WIREFRAME);
-  sphereWireframePBR->setTranslate(glm::vec3(3.f, 6.f, 3.f));
-  _core->addDrawable(sphereWireframePBR);
-  _core->endRecording();
+  {
+    // sphere PBR
+    auto sphereTexturedPBR = _core->createShape3D(ShapeType::SPHERE, meshSpherePlain);
+    sphereTexturedPBR->setMaterial(materialSpherePBR);
+    sphereTexturedPBR->setTranslate(glm::vec3(0.f, 6.f, 3.f));
+    _core->addDrawable(sphereTexturedPBR);
+  }
+  {
+    // sphere PBR wireframe
+    auto sphereWireframePBR = _core->createShape3D(ShapeType::SPHERE, meshSpherePlain);
+    sphereWireframePBR->setMaterial(materialSpherePBR);
+    sphereWireframePBR->setDrawType(DrawType::WIREFRAME);
+    sphereWireframePBR->setTranslate(glm::vec3(3.f, 6.f, 3.f));
+    _core->addDrawable(sphereWireframePBR);
+  }
 
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset

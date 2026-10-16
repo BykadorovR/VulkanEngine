@@ -1,39 +1,6 @@
 #include <iostream>
-#include <chrono>
-#include <future>
 #include "Main.h"
-#include <glm/gtx/matrix_decompose.hpp>
 #include "Utility/PhysicsManager.h"
-#include <nlohmann/json.hpp>
-#include "glm/gtx/vector_angle.hpp"
-
-float getHeight(std::tuple<std::shared_ptr<uint8_t[]>, std::tuple<int, int, int>> heightmap, glm::vec3 position) {
-  auto [data, dimension] = heightmap;
-  auto [width, height, channels] = dimension;
-
-  float x = position.x + (width - 1) / 2.f;
-  float z = position.z + (height - 1) / 2.f;
-  int xIntegral = x;
-  int zIntegral = z;
-  // 0 1
-  // 2 3
-
-  // channels 2, width 4, (2, 1) = 2 * 2 + 1 * 4 * 2 = 12
-  // 0 0 1 1 2 2 3 3
-  // 4 4 5 5 6 6 7 7
-  int index0 = xIntegral * channels + zIntegral * (width * channels);
-  int index1 = (xIntegral + 1) * channels + zIntegral * (width * channels);
-  int index2 = xIntegral * channels + (zIntegral + 1) * (width * channels);
-  int index3 = (xIntegral + 1) * channels + (zIntegral + 1) * (width * channels);
-  float sample0 = data[index0] / 255.f;
-  float sample1 = data[index1] / 255.f;
-  float sample2 = data[index2] / 255.f;
-  float sample3 = data[index3] / 255.f;
-  float fxy1 = sample0 + (x - xIntegral) * (sample1 - sample0);
-  float fxy2 = sample2 + (x - xIntegral) * (sample3 - sample2);
-  float sample = fxy1 + (z - zIntegral) * (fxy2 - fxy1);
-  return sample * 64.f - 16.f;
-}
 
 void InputHandler::setMoveCallback(std::function<void(glm::vec2)> callback) { _callbackMove = callback; }
 
@@ -63,33 +30,9 @@ void InputHandler::charNotify(unsigned int code) {}
 
 void InputHandler::scrollNotify(double xOffset, double yOffset) {}
 
-void Main::_loadTerrain(std::string path) {
-  std::ifstream file(path);
-  nlohmann::json inputJSON;
-  file >> inputJSON;
-  if (inputJSON["stripe"].is_null() == false) {
-    _stripeLeft = inputJSON["stripe"][0];
-    _stripeRight = inputJSON["stripe"][1];
-    _stripeTop = inputJSON["stripe"][2];
-    _stripeBot = inputJSON["stripe"][3];
-  }
-
-  _patchX = inputJSON["patches"][0];
-  _patchY = inputJSON["patches"][1];
-  _patchRotationsIndex.resize(_patchX * _patchY);
-  for (int i = 0; i < inputJSON["rotation"].size(); i++) {
-    _patchRotationsIndex[i] = inputJSON["rotation"][i];
-  }
-  _patchTextures.resize(_patchX * _patchY);
-  for (int i = 0; i < inputJSON["textures"].size(); i++) {
-    _patchTextures[i] = inputJSON["textures"][i];
-  }
-}
-
 void Main::_createTerrainColor() {
   _core->removeDrawable(_terrain);
-  //_loadTerrain("../assets/test.json");
-  _terrain = _core->createTerrainComposition(_core->loadImageCPU("../assets/heightmap.png"));
+  _terrain = _core->createTerrainComposition(_core->loadImageCPU("heightmap.png"));
   _terrain->setPatchNumber(_patchX, _patchY);
   _terrain->setPatchRotations(_patchRotationsIndex);
   _terrain->setPatchTextures(_patchTextures);
@@ -109,7 +52,6 @@ Main::Main() {
   int mipMapLevels = 8;
   auto settings = std::make_shared<Settings>();
   settings->setName("Terrain");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -125,10 +67,14 @@ Main::Main() {
   settings->setMaxFramesInFlight(2);
   settings->setThreadsInPool(6);
   settings->setDesiredFPS(60);
+  settings->setAssetsPath(GEODATA_ASSETS_PATH);
+  settings->setShadersPath(GEODATA_ASSETS_PATH);
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   _inputHandler = std::make_shared<InputHandler>(_core);
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_inputHandler));
 
@@ -143,53 +89,44 @@ Main::Main() {
   auto ambientLight = _core->createAmbientLight();
   ambientLight->setColor({0.1f, 0.1f, 0.1f});
 
-  // cube colored light
-  _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE);
-  _cubeColoredLightVertical->getMesh()->setColor(
-      std::vector{_cubeColoredLightVertical->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(_cubeColoredLightVertical);
+  {
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
+    _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
+    _core->addDrawable(_cubeColoredLightVertical);
 
-  _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE);
-  _cubeColoredLightHorizontal->getMesh()->setColor(
-      std::vector{_cubeColoredLightHorizontal->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(_cubeColoredLightHorizontal);
+    _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE, meshCube);
+    _core->addDrawable(_cubeColoredLightHorizontal);
 
-  auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE);
-  cubeColoredLightDirectional->getMesh()->setColor(
-      std::vector{cubeColoredLightDirectional->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
-  cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _core->addDrawable(cubeColoredLightDirectional);
+    auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE, meshCube);
+    cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
+    cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    _core->addDrawable(cubeColoredLightDirectional);
+  }
+  auto heightmapCPU = _core->loadImageCPU("heightmap.png");
 
-  auto heightmapCPU = _core->loadImageCPU("../assets/heightmap.png");
-
-  _physicsManager = std::make_shared<PhysicsManager>();
+  _physicsManager = _core->createPhysicsManager();
+  _physicsManager->setDeltaTime(1.f / static_cast<float>(settings->getDesiredFPS()));
   _terrainPhysics = std::make_shared<TerrainPhysics>(heightmapCPU, _terrainPosition, _terrainScale, std::tuple{64, 16},
                                                      _physicsManager, _core->getGameState(), _core->getEngineState());
   _terrainPhysics->setFriction(0.5f);
 
   _shape3DPhysics = std::make_shared<Shape3DPhysics>(glm::vec3(0.f, 50.f, 0.f), glm::vec3(0.5f, 0.5f, 0.5f),
                                                      _physicsManager);
-
-  _cubePlayer = _core->createShape3D(ShapeType::CUBE);
-  _cubePlayer->setTranslate(glm::vec3(-4.f, -14.f, -10.f));
-  _cubePlayer->getMesh()->setColor(
-      std::vector{_cubePlayer->getMesh()->getVertexData().size(), glm::vec3(0.f, 0.f, 1.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(_cubePlayer);
+  {
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(0.f, 0.f, 1.f)});
+    _cubePlayer = _core->createShape3D(ShapeType::CUBE, meshCube);
+    _cubePlayer->setTranslate(glm::vec3(-4.f, -14.f, -10.f));
+    _core->addDrawable(_cubePlayer);
+  }
   auto callbackPosition = [&](glm::vec2 click) { _endPoint = _terrainPhysics->getHit(click); };
   _inputHandler->setMoveCallback(callbackPosition);
   {
-    auto tile0 = _core->createTexture("../assets/desert/albedo.png", settings->getLoadTextureColorFormat(),
-                                      mipMapLevels);
-    auto tile1 = _core->createTexture("../assets/rock/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
-    auto tile2 = _core->createTexture("../assets/grass/albedo.png", settings->getLoadTextureColorFormat(),
-                                      mipMapLevels);
-    auto tile3 = _core->createTexture("../assets/ground/albedo.png", settings->getLoadTextureColorFormat(),
-                                      mipMapLevels);
+    auto tile0 = _core->createTexture("desert/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
+    auto tile1 = _core->createTexture("rock/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
+    auto tile2 = _core->createTexture("grass/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
+    auto tile3 = _core->createTexture("ground/albedo.png", settings->getLoadTextureColorFormat(), mipMapLevels);
     _materialColor = _core->createMaterialColor(MaterialTarget::TERRAIN);
     _materialColor->setBaseColor({tile0, tile1, tile2, tile3});
   }
@@ -218,22 +155,22 @@ Main::Main() {
     }
     _modelSimple->setMaterial(materialModelSimple);
 
-    auto aabb = _modelSimple->getAABB();
+    auto aabb = _modelSimple->getAABBPositions();
     auto min = aabb->getMin();
     auto max = aabb->getMax();
-    auto center = (max + min) / 2.f;
     // divide to 2.f because Jolt accept half of the box not entire one
     auto minBB = glm::scale(glm::mat4(1.f), glm::vec3(_boundingBoxScale, _modelScale, _modelScale)) *
-                 glm::vec4(center.x - (max - min).x / 2.f, min.y, min.z, 1.f);
+                 glm::vec4(min.y, min.y, min.z, 1.f);
     auto maxBB = glm::scale(glm::mat4(1.f), glm::vec3(_boundingBoxScale, _modelScale, _modelScale)) *
-                 glm::vec4(center.x + (max - min).x / 2.f, max.y, max.z, 1.f);
+                 glm::vec4(max.x, max.y, max.z, 1.f);
     _modelSimple->setTranslate(glm::vec3(-4.f, -1.f, -3.f));
     _modelSimple->setScale(glm::vec3(_modelScale, _modelScale, _modelScale));
     // model itself is buggy and it's origin between the foots
     _modelSimple->setOriginShift(glm::vec3(0.f, -((max - min) / 2.f).y, 0.f));
     _core->addDrawable(_modelSimple);
 
-    _boundingBox = _core->createShape3D(ShapeType::CUBE);
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    _boundingBox = _core->createShape3D(ShapeType::CUBE, meshCube);
     _boundingBox->setDrawType(DrawType::WIREFRAME);
     _boundingBox->setScale(maxBB - minBB);
     _core->addDrawable(_boundingBox);
@@ -241,12 +178,15 @@ Main::Main() {
     _model3DPhysics = std::make_shared<Model3DPhysics>(
         glm::vec3(-4.f, 14.f, -10.f), (maxBB - minBB).y - (maxBB - minBB).z, (maxBB - minBB).z / 2.f, _physicsManager);
     _model3DPhysics->setFriction(0.5f);
+    _model3DPhysics->setRotationSpeed(3.f);
+    _model3DPhysics->setMovementSpeed(_speed);
 
-    _capsule = _core->createCapsule((maxBB - minBB).y - (maxBB - minBB).z, (maxBB - minBB).z / 2.f);
+    auto meshCapsule = std::make_shared<MeshCapsuleStatic>((maxBB - minBB).y - (maxBB - minBB).z,
+                                                           (maxBB - minBB).z / 2.f, _core->getEngineState());
+    meshCapsule->setColor(std::vector{meshCapsule->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
+    _capsule = _core->createShape3D(ShapeType::CAPSULE, meshCapsule);
     _capsule->setTranslate(glm::vec3(0.f, 0.f, 0.f));
     _capsule->setDrawType(DrawType::WIREFRAME);
-    _capsule->getMesh()->setColor(std::vector{_capsule->getMesh()->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)},
-                                  _core->getCommandBufferApplication());
     _core->addDrawable(_capsule);
   }
 
@@ -259,8 +199,6 @@ Main::Main() {
   _cameraRTS->setShift(glm::vec3(0.f, 10.f, 4.f));
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_cameraRTS));
   _core->setCamera(_cameraRTS);
-
-  _core->endRecording();
 
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
@@ -316,7 +254,6 @@ void Main::update() {
     _core->getGUI()->drawText({std::string("normal x: ") + std::format("{:.6f}", normal.x),
                                std::string("normal y: ") + std::format("{:.6f}", normal.y),
                                std::string("normal z: ") + std::format("{:.6f}", normal.z)});
-    _core->getGUI()->drawText({std::string("angle: ") + std::format("{:.2f}", glm::degrees(_angle))});
     _core->getGUI()->endTree();
   }
   if (_core->getGUI()->startTree("Camera")) {
@@ -343,9 +280,7 @@ void Main::update() {
   if (_core->getGUI()->startTree("Toggles")) {
     std::map<std::string, int*> patchesNumber{{"Patch x", &_patchX}, {"Patch y", &_patchY}};
     if (_core->getGUI()->drawInputInt(patchesNumber)) {
-      _core->startRecording();
       _createTerrainColor();
-      _core->endRecording();
     }
 
     std::map<std::string, int*> tesselationLevels{{"Tesselation min", &_minTessellationLevel},
@@ -373,49 +308,7 @@ void Main::update() {
   _core->getGUI()->endWindow();
 
   if (_endPoint) {
-    auto endPoint = _endPoint.value();
-    auto position = _model3DPhysics->getTranslate();
-    position.y -= _model3DPhysics->getSize().y / 2.f;
-    auto distance = glm::distance(endPoint, position);
-    if (distance < 0.1f) {
-      _model3DPhysics->setLinearVelocity({0.f, 0.f, 0.f});
-      _model3DPhysics->setTranslate(glm::vec3(position.x, position.y + _model3DPhysics->getSize().y / 2.f, position.z));
-      _endPoint.reset();
-    } else {
-      glm::vec3 direction = glm::normalize(endPoint - glm::vec3(position.x, position.y, position.z));
-      // Cancel movement in opposite direction of normal when touching something we can't walk up
-      if (_model3DPhysics->getGroundState() == GroundState::OnSteepGround ||
-          _model3DPhysics->getGroundState() == GroundState::NotSupported) {
-        auto normal = _model3DPhysics->getGroundNormal();
-        normal.y = 0.0f;
-        float dot = glm::dot(normal, direction);
-        if (dot < 0.0f) {
-          auto change = (dot * normal) / glm::length2(normal);
-          direction -= change;
-        }
-      }
-      // Update velocity
-      glm::vec3 currentVelocity = _model3DPhysics->getLinearVelocity();
-      glm::vec3 desiredVelocity = _speed * direction;
-      if (!(glm::length2(desiredVelocity) <= 1.0e-12f) || currentVelocity.y < 0.0f)
-        desiredVelocity.y = currentVelocity.y;
-      glm::vec3 newVelocity = 0.75f * currentVelocity + 0.25f * desiredVelocity;
-
-      _model3DPhysics->setLinearVelocity(newVelocity);
-
-      // rotate
-      auto flatDirection = glm::vec3(endPoint.x, 0.f, endPoint.z) -
-                           glm::vec3(_model3DPhysics->getTranslate().x, 0.f, _model3DPhysics->getTranslate().z);
-      if (glm::length(flatDirection) > 0.1f) {
-        flatDirection = glm::normalize(flatDirection);
-        auto currentRotation = _model3DPhysics->getRotate();
-        _angle = glm::atan(flatDirection.x, flatDirection.z);
-        glm::quat rotation = glm::rotate(glm::quat(1.0f, 0.0f, 0.0f, 0.0f), _angle, glm::vec3(0.0f, 1.0f, 0.0f));
-        auto rotationSpeed = 3.f;
-        glm::quat smoothedRotation = glm::slerp(currentRotation, rotation, (1.f / (float)FPSLimited) * rotationSpeed);
-        _model3DPhysics->setRotate(glm::normalize(smoothedRotation));
-      }
-    }
+    if (_model3DPhysics->moveTo(_endPoint.value(), 0.1f) == false) _endPoint.reset();
   }
 
   _cubePlayer->setTranslate(_shape3DPhysics->getTranslate());

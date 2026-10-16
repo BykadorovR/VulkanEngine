@@ -83,7 +83,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Sprite");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -99,12 +98,15 @@ Main::Main() {
   settings->setMaxFramesInFlight(2);
   settings->setThreadsInPool(6);
   settings->setDesiredFPS(1000);
+  settings->setAssetsPath("../assets/");
+  settings->setShadersPath("../assets/");
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
+  _gui = _core->createGUI();
+
   // start transfer command buffer
   auto commandBufferTransfer = _core->getCommandBufferApplication();
-  commandBufferTransfer->beginCommands();
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setSpeed(0.05f, 0.01f);
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
@@ -131,7 +133,7 @@ Main::Main() {
                              core->getResourceManager()->getTextureZero());
   };
 
-  auto postprocessing = _core->getPostprocessing();
+  auto postprocessing = _core->createPostprocessing();
 
   _pointLightHorizontal = _core->createPointLight();
   _core->createPointShadow(_pointLightHorizontal);
@@ -368,28 +370,33 @@ Main::Main() {
   auto particleSystem = _core->createParticleSystem(particles, particleTexture);
   particleSystem->setTranslate(glm::vec3(0.f, 0.f, 2.f));
   particleSystem->setScale(glm::vec3(0.5f, 0.5f, 0.5f));
-  _core->addParticleSystem(particleSystem);
 
   std::vector<std::shared_ptr<Shape3D>> spheres(6);
   // non HDR
-  spheres[0] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[0]->getMesh()->setColor({{0.f, 0.f, 0.1f}}, commandBufferTransfer);
+  auto mesh0 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh0->setColor({{0.f, 0.f, 0.1f}});
+  spheres[0] = _core->createShape3D(ShapeType::SPHERE, mesh0);
   spheres[0]->setTranslate(glm::vec3(0.f, 5.f, 0.f));
-  spheres[1] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[1]->getMesh()->setColor({{0.f, 0.f, 0.5f}}, commandBufferTransfer);
+  auto mesh1 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh1->setColor({{0.f, 0.f, 0.5f}});
+  spheres[1] = _core->createShape3D(ShapeType::SPHERE, mesh1);
   spheres[1]->setTranslate(glm::vec3(2.f, 5.f, 0.f));
-  spheres[2] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[2]->getMesh()->setColor({{0.f, 0.f, 10.f}}, commandBufferTransfer);
+  auto mesh2 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh2->setColor({{0.f, 0.f, 10.f}});
+  spheres[2] = _core->createShape3D(ShapeType::SPHERE, mesh2);
   spheres[2]->setTranslate(glm::vec3(-2.f, 5.f, 0.f));
   // HDR
-  spheres[3] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[3]->getMesh()->setColor({{5.f, 0.f, 0.f}}, commandBufferTransfer);
+  auto mesh3 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh3->setColor({{5.f, 0.f, 0.f}});
+  spheres[3] = _core->createShape3D(ShapeType::SPHERE, mesh3);
   spheres[3]->setTranslate(glm::vec3(0.f, 5.f, 2.f));
-  spheres[4] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[4]->getMesh()->setColor({{0.f, 5.f, 0.f}}, commandBufferTransfer);
+  auto mesh4 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh4->setColor({{0.f, 5.f, 0.f}});
+  spheres[4] = _core->createShape3D(ShapeType::SPHERE, mesh4);
   spheres[4]->setTranslate(glm::vec3(-4.f, 7.f, -2.f));
-  spheres[5] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[5]->getMesh()->setColor({{0.f, 0.f, 20.f}}, commandBufferTransfer);
+  auto mesh5 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh5->setColor({{0.f, 0.f, 20.f}});
+  spheres[5] = _core->createShape3D(ShapeType::SPHERE, mesh5);
   spheres[5]->setTranslate(glm::vec3(-4.f, 5.f, -2.f));
   for (auto& sphere : spheres) {
     _core->addDrawable(sphere);
@@ -401,22 +408,23 @@ Main::Main() {
        "../assets/Skybox/bottom.jpg", "../assets/Skybox/front.jpg", "../assets/Skybox/back.jpg"},
       settings->getLoadTextureColorFormat(), 1);
 
-  auto cube = _core->createShape3D(ShapeType::CUBE);
+  auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+  auto cube = _core->createShape3D(ShapeType::CUBE, meshCube);
   auto materialColor = _core->createMaterialColor(MaterialTarget::SIMPLE);
   materialColor->setBaseColor({_cubemapSkybox->getTexture()});
   cube->setMaterial(materialColor);
   cube->setTranslate(glm::vec3(0.f, 3.f, 0.f));
   _core->addDrawable(cube);
 
-  auto equiCube = _core->createShape3D(ShapeType::CUBE, VK_CULL_MODE_NONE);
+  auto equiCube = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_NONE);
   equiCube->setTranslate(glm::vec3(0.f, 3.f, -3.f));
   _core->addDrawable(equiCube);
 
-  auto diffuseCube = _core->createShape3D(ShapeType::CUBE, VK_CULL_MODE_NONE);
+  auto diffuseCube = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_NONE);
   diffuseCube->setTranslate(glm::vec3(2.f, 3.f, -3.f));
   _core->addDrawable(diffuseCube);
 
-  auto specularCube = _core->createShape3D(ShapeType::CUBE, VK_CULL_MODE_NONE);
+  auto specularCube = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_NONE);
   specularCube->setTranslate(glm::vec3(4.f, 3.f, -3.f));
   _core->addDrawable(specularCube);
 
@@ -467,8 +475,6 @@ Main::Main() {
   spriteBRDF->setTranslate(glm::vec3(5.f, 3.f, 1.f));
   _core->addDrawable(spriteBRDF);
 
-  _core->endRecording();
-
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));
@@ -486,19 +492,18 @@ void Main::update() {
 
   auto [FPSLimited, FPSReal] = _core->getFPS();
   auto [widthScreen, heightScreen] = _core->getEngineState()->getSettings()->getResolution();
-  _core->getGUI()->startWindow("Help");
-  _core->getGUI()->setWindowPosition({20, 20});
-  if (_core->getGUI()->startTree("Main")) {
-    _core->getGUI()->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
-    _core->getGUI()->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
-    _core->getGUI()->drawText({"Press 'c' to turn cursor on/off"});
-    _core->getGUI()->endTree();
+  _gui->startWindow("Help");
+  _gui->setWindowPosition({20, 20});
+  if (_gui->startTree("Main")) {
+    _gui->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
+    _gui->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
+    _gui->drawText({"Press 'c' to turn cursor on/off"});
+    _gui->endTree();
   }
-  if (_core->getGUI()->startTree("Terrain", false)) {
+  if (_gui->startTree("Terrain", false)) {
     std::map<std::string, int*> terrainType;
     terrainType["##Type"] = &_typeIndex;
-    if (_core->getGUI()->drawListBox({"Color", "Phong", "PBR"}, terrainType, 3)) {
-      _core->startRecording();
+    if (_gui->drawListBox({"Color", "Phong", "PBR"}, terrainType, 3)) {
       switch (_typeIndex) {
         case 0:
           _terrain->setMaterial(_materialColor);
@@ -510,17 +515,16 @@ void Main::update() {
           _terrain->setMaterial(_materialPBR);
           break;
       }
-      _core->endRecording();
     }
-    _core->getGUI()->endTree();
+    _gui->endTree();
   }
 
   _debugVisualization->update();
-  if (_core->getGUI()->startTree("Debug", false)) {
+  if (_gui->startTree("Debug", false)) {
     _debugVisualization->draw();
-    _core->getGUI()->endTree();
+    _gui->endTree();
   }
-  _core->getGUI()->endWindow();
+  _gui->endWindow();
 }
 
 void Main::reset(int width, int height) { _camera->setAspect((float)width / (float)height); }

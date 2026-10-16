@@ -30,7 +30,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Model");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -46,10 +45,14 @@ Main::Main() {
   settings->setMaxFramesInFlight(2);
   settings->setThreadsInPool(6);
   settings->setDesiredFPS(1000);
+  settings->setAssetsPath("../assets/");
+  settings->setShadersPath("../assets/");
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _camera->setSpeed(0.05f, 0.01f);
@@ -66,28 +69,29 @@ Main::Main() {
   _directionalLight->setColor(glm::vec3(1.f, 1.f, 1.f));
   _directionalLight->getCamera()->setPosition(glm::vec3(0.f, 20.f, 0.f));
 
-  // cube colored light
-  _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, VK_CULL_MODE_BACK_BIT);
-  _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightVertical->getMesh()->setColor(
-      std::vector{_cubeColoredLightVertical->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(_cubeColoredLightVertical);
+  {
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_BACK_BIT);
+    _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    std::dynamic_pointer_cast<MeshStatic3D>(_cubeColoredLightVertical->getMesh())
+        ->setColor(std::vector{_cubeColoredLightVertical->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
+    _core->addDrawable(_cubeColoredLightVertical);
 
-  _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE, VK_CULL_MODE_BACK_BIT);
-  _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightHorizontal->getMesh()->setColor(
-      std::vector{_cubeColoredLightHorizontal->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(_cubeColoredLightHorizontal);
+    _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_BACK_BIT);
+    _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    std::dynamic_pointer_cast<MeshStatic3D>(_cubeColoredLightHorizontal->getMesh())
+        ->setColor(
+            std::vector{_cubeColoredLightHorizontal->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
+    _core->addDrawable(_cubeColoredLightHorizontal);
 
-  auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE, VK_CULL_MODE_BACK_BIT);
-  cubeColoredLightDirectional->getMesh()->setColor(
-      std::vector{cubeColoredLightDirectional->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
-  cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _core->addDrawable(cubeColoredLightDirectional);
+    auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_BACK_BIT);
+    std::dynamic_pointer_cast<MeshStatic3D>(cubeColoredLightDirectional->getMesh())
+        ->setColor(
+            std::vector{cubeColoredLightDirectional->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
+    cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
+    cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    _core->addDrawable(cubeColoredLightDirectional);
+  }
 
   auto fillMaterialPhong = [core = _core](std::shared_ptr<MaterialPhong> material) {
     if (material->getBaseColor().size() == 0) material->setBaseColor({core->getResourceManager()->getTextureOne()});
@@ -106,7 +110,7 @@ Main::Main() {
     material->setSpecularIBL(core->getResourceManager()->getCubemapZero()->getTexture(),
                              core->getResourceManager()->getTextureZero());
   };
-  auto gltfModelBox = _core->createModelGLTF("assets/Box/Box.gltf");
+  auto gltfModelBox = _core->createModelGLTF("Box/Box.gltf");
   {
     auto modelBox = _core->createModel3D(gltfModelBox);
     auto materialModelBox = gltfModelBox->getMaterialsPBR();
@@ -243,21 +247,33 @@ Main::Main() {
   // draw skeletal walking model with one animation
   {
     auto gltfModelWalking = _core->createModelGLTF("../assets/CesiumMan/CesiumMan.gltf");
-    auto modelWalking = _core->createModel3D(gltfModelWalking);
+    _modelWalking = _core->createModel3D(gltfModelWalking);
     auto materialModelWalking = gltfModelWalking->getMaterialsPhong();
     for (auto& material : materialModelWalking) {
       fillMaterialPhong(material);
     }
-    modelWalking->setMaterial(materialModelWalking);
+    _modelWalking->setMaterial(materialModelWalking);
     auto animationWalking = _core->createAnimation(gltfModelWalking);
     // set animation to model, so joints will be passed to shader
-    modelWalking->setAnimation(animationWalking);
-    modelWalking->setTranslate(glm::vec3(-2.f, 0.f, -3.f));
-    modelWalking->setScale(glm::vec3(1.f, 1.f, 1.f));
-    _core->addDrawable(modelWalking);
-  }
+    _modelWalking->setAnimation(animationWalking);
+    _modelWalking->setTranslate(glm::vec3(-2.f, 0.f, -3.f));
+    _modelWalking->setScale(glm::vec3(1.f, 1.f, 1.f));
+    _core->addDrawable(_modelWalking);
 
-  _core->endRecording();
+    auto aabb = _modelWalking->getAABBPositions();
+    auto min = aabb->getMin();
+    auto max = aabb->getMax();
+
+    auto mesh = std::make_shared<MeshCapsuleStatic>((max - min).y - (max - min).z, (max - min).z / 2.f,
+                                                    _core->getEngineState());
+    _capsule = _core->createShape3D(ShapeType::CAPSULE, mesh);
+    _capsule->setTranslate(glm::vec3(-2.f, 0.f, -3.f));
+    _capsule->setOriginShift(glm::vec3(0.f, (max - min).y / 2.f, 0.f));
+    _capsule->setDrawType(DrawType::WIREFRAME);
+    std::dynamic_pointer_cast<MeshStatic3D>(_capsule->getMesh())
+        ->setColor(std::vector{_capsule->getMesh()->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
+    _core->addDrawable(_capsule);
+  }
 
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
@@ -293,6 +309,15 @@ void Main::update() {
   else if (i > 150.f)
     _animationFish->setPlay(false);
 
+  auto commandBuffer = _core->getCommandBufferApplication();
+  auto aabb = _modelWalking->getAABBJoints();
+  if (aabb->valid()) {
+    auto min = aabb->getMin();
+    auto max = aabb->getMax();
+    std::dynamic_pointer_cast<MeshCapsuleStatic>(_capsule->getMesh())
+        ->reset((max - min).y - (max - min).z, (max - min).z / 2.f);
+  }
+
   auto [FPSLimited, FPSReal] = _core->getFPS();
   auto [widthScreen, heightScreen] = _core->getEngineState()->getSettings()->getResolution();
   _core->getGUI()->startWindow("Help");
@@ -304,7 +329,6 @@ void Main::update() {
   std::map<std::string, int*> materialType;
   materialType["##Type"] = &_typeIndex;
   if (_core->getGUI()->drawListBox({"Color", "Phong", "PBR"}, materialType, 3)) {
-    _core->startRecording();
     switch (_typeIndex) {
       case 0:
         _modelBottle->setMaterial(_materialModelBottleColor);
@@ -316,7 +340,6 @@ void Main::update() {
         _modelBottle->setMaterial(_materialModelBottlePBR);
         break;
     }
-    _core->endRecording();
   }
 
   _core->getGUI()->endWindow();

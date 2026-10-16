@@ -14,12 +14,14 @@
 #include "DebugVisualization.h"
 #include <Engine/Core.h>
 #include <android/log.h>
+#include <android/trace.h>
 #include <cassert>
+#include <chrono>
+#include <future>
 #include <game-activity/native_app_glue/android_native_app_glue.h>
 #include <glm/gtc/random.hpp>
 #include <random>
 #include <vector>
-#include <android/trace.h>
 #include "Utility/PhysicsManager.h"
 
 // Android log function wrappers
@@ -31,8 +33,14 @@ static const char* kTAG = "AndroidApplication";
 // We will call this function the window is opened.
 // This is where we will initialise everything
 std::shared_ptr<Core> _core;
-android_app* _app;
 bool _initialized = false;
+bool windowAvailable = false;
+bool resumed = false;
+bool focused = false;
+std::future<void> initializationFuture;
+int windowGeneration = 0;
+int initializationGeneration = -1;
+int failedInitializationGeneration = -1;
 std::shared_ptr<CameraFly> _camera;
 std::shared_ptr<PointLight> _pointLightVertical;
 std::shared_ptr<PointLight> _pointLightHorizontal;
@@ -41,7 +49,6 @@ std::shared_ptr<Shape3D> _cubeColoredLightVertical, _cubeColoredLightHorizontal,
 std::shared_ptr<Animation> _animationFish;
 bool _showLoD = false, _showWireframe = false, _showNormals = false, _showPatches = false;
 float _directionalValue = 0.5f, _pointVerticalValue = 1.f, _pointHorizontalValue = 10.f;
-std::tuple<int, int> _resolution = {1080, 2400};
 std::shared_ptr<DebugVisualization> _debugVisualization;
 std::shared_ptr<Cubemap> _cubemapSkybox;
 std::shared_ptr<IBL> _ibl;
@@ -56,8 +63,6 @@ std::shared_ptr<Model3DPhysics> _model3DPhysics;
 std::shared_ptr<Shape3DPhysics> _shape3DPhysics;
 std::shared_ptr<PhysicsManager> _physicsManager;
 std::shared_ptr<TerrainPhysics> _terrainPhysics;
-float _modelScale = 2.f;
-float _boundingBoxScale = 1.5f;
 
 int _typeIndex = 0;
 int _patchX = 12, _patchY = 12;
@@ -134,7 +139,6 @@ void update() {
     std::map<std::string, int*> terrainType;
     terrainType["##Type"] = &_typeIndex;
     if (_core->getGUI()->drawListBox({"Color", "Phong", "PBR"}, terrainType, 3)) {
-      _core->startRecording();
       _core->removeDrawable(_terrain);
       switch (_typeIndex) {
         case 0:
@@ -152,7 +156,6 @@ void update() {
           break;
       }
       _core->addDrawable(_terrain);
-      _core->endRecording();
     }
     _core->getGUI()->endTree();
   }
@@ -178,15 +181,13 @@ void update() {
   _model3DPhysics->postUpdate();
 }
 
-void initialize() {
+void initialize(ANativeWindow* nativeWindow, AAssetManager* assetManager, std::tuple<int, int> resolution) {
   int mipMapLevels = 4;
-
   auto settings = std::make_shared<Settings>();
   settings->setName("Sprite");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
-  settings->setResolution(_resolution);
+  settings->setResolution(resolution);
   settings->setShadowMapResolution({512, 512});
   // for HDR, linear 16 bit per channel to represent values outside of 0-1 range
   // (UNORM - float [0, 1], SFLOAT - float)
@@ -199,16 +200,21 @@ void initialize() {
   settings->setAnisotropicSamples(0);
   settings->setDepthFormat(VK_FORMAT_D32_SFLOAT);
   settings->setMaxFramesInFlight(2);
-  settings->setThreadsInPool(0);
+  settings->setThreadsInPool(6);
   settings->setDesiredFPS(60);
+  settings->setAssetsPath("");
+  settings->setShadersPath("");
 
+  _debugVisualization.reset();
   _core = std::make_shared<Core>(settings);
-  _core->setAssetManager(_app->activity->assetManager);
-  _core->setNativeWindow(_app->window);
+  _core->setAssetManager(assetManager);
+  _core->setNativeWindow(nativeWindow);
   _core->initialize();
+  _core->createGUI();
+  _core->createPostprocessing();
+
   auto commandBufferTransfer = _core->getCommandBufferApplication();
 
-  _core->startRecording();
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _camera->setSpeed(0.1f, 0.05f);
@@ -457,30 +463,34 @@ void initialize() {
   auto particleSystem = _core->createParticleSystem(particles, particleTexture);
   particleSystem->setScale(glm::vec3(0.5f, 0.5f, 0.5f));
   particleSystem->setTranslate(glm::vec3(0.f, 0.f, 2.f));
-  _core->addParticleSystem(particleSystem);
 
   std::vector<std::shared_ptr<Shape3D>> spheres(6);
   // non HDR
-  spheres[0] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[0]->getMesh()->setColor({{0.f, 0.f, 0.1f}}, commandBufferTransfer);
+  auto mesh0 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh0->setColor({{0.f, 0.f, 0.1f}});
+  spheres[0] = _core->createShape3D(ShapeType::SPHERE, mesh0);
   spheres[0]->setTranslate(glm::vec3(0.f, 5.f, 0.f));
-  spheres[1] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[1]->getMesh()->setColor({{0.f, 0.f, 0.5f}}, commandBufferTransfer);
+  auto mesh1 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh1->setColor({{0.f, 0.f, 0.5f}});
+  spheres[1] = _core->createShape3D(ShapeType::SPHERE, mesh1);
   spheres[1]->setTranslate(glm::vec3(2.f, 5.f, 0.f));
-  spheres[2] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[2]->getMesh()->setColor({{0.f, 0.f, 10.f}}, commandBufferTransfer);
+  auto mesh2 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh2->setColor({{0.f, 0.f, 10.f}});
+  spheres[2] = _core->createShape3D(ShapeType::SPHERE, mesh2);
   spheres[2]->setTranslate(glm::vec3(-2.f, 5.f, 0.f));
   // HDR
-  spheres[3] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[3]->getMesh()->setColor({{5.f, 0.f, 0.f}}, commandBufferTransfer);
+  auto mesh3 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh3->setColor({{5.f, 0.f, 0.f}});
+  spheres[3] = _core->createShape3D(ShapeType::SPHERE, mesh3);
   spheres[3]->setTranslate(glm::vec3(0.f, 5.f, 2.f));
-  spheres[4] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[4]->getMesh()->setColor({{0.f, 5.f, 0.f}}, commandBufferTransfer);
+  auto mesh4 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh4->setColor({{0.f, 5.f, 0.f}});
+  spheres[4] = _core->createShape3D(ShapeType::SPHERE, mesh4);
   spheres[4]->setTranslate(glm::vec3(-4.f, 7.f, -2.f));
-  spheres[5] = _core->createShape3D(ShapeType::SPHERE);
-  spheres[5]->getMesh()->setColor({{0.f, 0.f, 20.f}}, commandBufferTransfer);
+  auto mesh5 = std::make_shared<MeshSphere>(_core->getEngineState());
+  mesh5->setColor({{0.f, 0.f, 20.f}});
+  spheres[5] = _core->createShape3D(ShapeType::SPHERE, mesh5);
   spheres[5]->setTranslate(glm::vec3(-4.f, 5.f, -2.f));
-
   for (auto& sphere : spheres) {
     _core->addDrawable(sphere);
   }
@@ -489,22 +499,23 @@ void initialize() {
   _cubemapSkybox = _core->createCubemap({"right.jpg", "left.jpg", "top.jpg", "bottom.jpg", "front.jpg", "back.jpg"},
                                         settings->getLoadTextureColorFormat(), 1);
 
-  auto cube = _core->createShape3D(ShapeType::CUBE);
+  auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+  auto cube = _core->createShape3D(ShapeType::CUBE, meshCube);
   auto materialColor = _core->createMaterialColor(MaterialTarget::SIMPLE);
   materialColor->setBaseColor({_cubemapSkybox->getTexture()});
   cube->setMaterial(materialColor);
   cube->setTranslate(glm::vec3(0.f, 3.f, 0.f));
   _core->addDrawable(cube);
 
-  auto equiCube = _core->createShape3D(ShapeType::CUBE, VK_CULL_MODE_NONE);
+  auto equiCube = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_NONE);
   equiCube->setTranslate(glm::vec3(0.f, 3.f, -3.f));
   _core->addDrawable(equiCube);
 
-  auto diffuseCube = _core->createShape3D(ShapeType::CUBE, VK_CULL_MODE_NONE);
+  auto diffuseCube = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_NONE);
   diffuseCube->setTranslate(glm::vec3(2.f, 3.f, -3.f));
   _core->addDrawable(diffuseCube);
 
-  auto specularCube = _core->createShape3D(ShapeType::CUBE, VK_CULL_MODE_NONE);
+  auto specularCube = _core->createShape3D(ShapeType::CUBE, meshCube, VK_CULL_MODE_NONE);
   specularCube->setTranslate(glm::vec3(4.f, 3.f, -3.f));
   _core->addDrawable(specularCube);
 
@@ -558,16 +569,16 @@ void initialize() {
   {
     auto heightmapCPU = _core->loadImageCPU("heightmap.png");
 
-    _physicsManager = std::make_shared<PhysicsManager>();
+    _physicsManager = _core->createPhysicsManager();
     _terrainPhysics = std::make_shared<TerrainPhysics>(heightmapCPU, _terrainPosition, _terrainScale,
                                                        std::tuple{64, 16}, _physicsManager, _core->getGameState(),
                                                        _core->getEngineState());
 
-    _cubePlayer = _core->createShape3D(ShapeType::CUBE);
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(0.f, 0.f, 1.f)});
+    _cubePlayer = _core->createShape3D(ShapeType::CUBE, meshCube);
     _cubePlayer->setTranslate(glm::vec3(0.f, 2.f, 0.f));
-    _cubePlayer->getMesh()->setColor(
-        std::vector{_cubePlayer->getMesh()->getVertexData().size(), glm::vec3(0.f, 0.f, 1.f)},
-        _core->getCommandBufferApplication());
+
     _core->addDrawable(_cubePlayer);
 
     _shape3DPhysics = std::make_shared<Shape3DPhysics>(glm::vec3(0.f, 50.f, 0.f), glm::vec3(0.5f, 0.5f, 0.5f),
@@ -585,39 +596,37 @@ void initialize() {
     }
     _modelSimple->setMaterial(materialModelSimple);
 
-    auto aabb = _modelSimple->getAABB();
+    auto aabb = _modelSimple->getAABBPositions();
     auto min = aabb->getMin();
     auto max = aabb->getMax();
-    auto center = (max + min) / 2.f;
-    auto minBB = glm::scale(glm::mat4(1.f), glm::vec3(_boundingBoxScale, _modelScale, _modelScale)) *
-                 glm::vec4(center.x - (max - min).x / 2.f, min.y, min.z, 1.f);
-    auto maxBB = glm::scale(glm::mat4(1.f), glm::vec3(_boundingBoxScale, _modelScale, _modelScale)) *
-                 glm::vec4(center.x + (max - min).x / 2.f, max.y, max.z, 1.f);
 
     _modelSimple->setTranslate(glm::vec3(-4.f, -1.f, -3.f));
     _modelSimple->setOriginShift(glm::vec3(0.f, -((max - min) / 2.f).y, 0.f));
     _core->addDrawable(_modelSimple);
 
-    _boundingBox = _core->createShape3D(ShapeType::CUBE);
+    auto meshCubeBB = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCubeBB->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
+    _boundingBox = _core->createShape3D(ShapeType::CUBE, meshCubeBB);
     _boundingBox->setDrawType(DrawType::WIREFRAME);
-    _boundingBox->setScale(maxBB - minBB);
+    _boundingBox->setScale(max - min);
     _core->addDrawable(_boundingBox);
     _model3DPhysics = std::make_shared<Model3DPhysics>(glm::vec3(-4.f, -1.f, -3.f), (max - min) / 2.f, _physicsManager);
   }
 
-  _core->endRecording();
   _core->registerUpdate(std::bind(&update));
-
-  _initialized = true;
 }
 
-void terminate(void) {}
+void terminate() {
+  _initialized = false;
+  windowAvailable = false;
+  ++windowGeneration;
+}
 
-bool _move = false;
+int _movementKey = 0;
 void handle_input(android_app* app) {
-  if (_move) {
+  if (_movementKey != 0) {
     LOGI("Movement process");
-    _core->getEngineState()->getInput()->keyHandler(87, 0, 1, 0);
+    _core->getEngineState()->getInput()->keyHandler(_movementKey, 0, 1, 0);
   }
 
   auto* inputBuffer = android_app_swap_input_buffers(app);
@@ -648,7 +657,8 @@ void handle_input(android_app* app) {
         LOGI("( %d, %f, %f ) Pointer Down", pointer.id, x, y);
         if (pointer.id == 1) {
           LOGI("Start movement");
-          _move = true;
+          const auto height = std::get<1>(_core->getEngineState()->getSettings()->getResolution());
+          _movementKey = y < static_cast<float>(height) / 2.f ? 87 : 83;
         }
         if (pointer.id == 0) {
           // 0 - left button, 1 - press, 0 = mod, doesn't matter
@@ -665,9 +675,11 @@ void handle_input(android_app* app) {
       case AMOTION_EVENT_ACTION_POINTER_UP:
         LOGI("( %d, %f, %f ) Pointer Up", pointer.id, x, y);
         if (pointer.id == 1) {
-          _move = false;
           LOGI("End movement");
-          _core->getEngineState()->getInput()->keyHandler(87, 0, 0, 0);
+          if (_movementKey != 0) {
+            _core->getEngineState()->getInput()->keyHandler(_movementKey, 0, 0, 0);
+            _movementKey = 0;
+          }
         }
         if (pointer.id == 0) {
           // 0 - left button, 0 - release, 0 = mod, doesn't matter
@@ -686,6 +698,15 @@ void handle_input(android_app* app) {
           y = GameActivityPointerAxes_getY(&pointer);
           if (pointer.id == 0) {
             _core->getEngineState()->getInput()->cursorHandler(x, y);
+          } else if (pointer.id == 1) {
+            const auto height = std::get<1>(_core->getEngineState()->getSettings()->getResolution());
+            const int newMovementKey = y < static_cast<float>(height) / 2.f ? 87 : 83;
+            if (newMovementKey != _movementKey) {
+              if (_movementKey != 0) {
+                _core->getEngineState()->getInput()->keyHandler(_movementKey, 0, 0, 0);
+              }
+              _movementKey = newMovementKey;
+            }
           }
         }
         break;
@@ -723,17 +744,26 @@ void handle_input(android_app* app) {
 
 // typical Android NativeActivity entry function
 void android_main(android_app* app) {
-  _app = app;
   app->onAppCmd = [](android_app* app, int32_t cmd) {
     switch (cmd) {
       case APP_CMD_INIT_WINDOW:
-        // The window is being shown, get it ready.
-        _resolution = {ANativeWindow_getWidth(app->window), ANativeWindow_getHeight(app->window)};
-        initialize();
+        windowAvailable = true;
+        ++windowGeneration;
         break;
       case APP_CMD_TERM_WINDOW:
-        // The window is being hidden or closed, clean it up.
         terminate();
+        break;
+      case APP_CMD_RESUME:
+        resumed = true;
+        break;
+      case APP_CMD_PAUSE:
+        resumed = false;
+        break;
+      case APP_CMD_GAINED_FOCUS:
+        focused = true;
+        break;
+      case APP_CMD_LOST_FOCUS:
+        focused = false;
         break;
       default:
         LOGI("event not handled: %d", cmd);
@@ -743,19 +773,48 @@ void android_main(android_app* app) {
   int events;
   android_poll_source* source;
   do {
-    auto number = ALooper_pollOnce(_initialized ? 1 : 0, nullptr, &events, (void**)&source);
+    const bool canDraw = _initialized && windowAvailable && resumed && focused;
+    const auto number = ALooper_pollOnce(canDraw || initializationFuture.valid() ? 1 : -1, nullptr, &events,
+                                         reinterpret_cast<void**>(&source));
     if (number >= 0) {
-      if (source != NULL) source->process(app, source);
+      if (source != nullptr) source->process(app, source);
     }
 
-    handle_input(app);
+    if (initializationFuture.valid() &&
+        initializationFuture.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+      bool initializationSucceeded = true;
+      try {
+        initializationFuture.get();
+      } catch (const std::exception& exception) {
+        LOGE("Initialization failed: %s", exception.what());
+        initializationSucceeded = false;
+      }
 
-    char* customEventName = new char[32];
-    sprintf(customEventName, "draw call");
-    ATrace_beginSection(customEventName);
+      if (initializationSucceeded && initializationGeneration == windowGeneration && windowAvailable) {
+        _initialized = true;
+      } else {
+        if (initializationGeneration == windowGeneration) failedInitializationGeneration = windowGeneration;
+        _debugVisualization.reset();
+        _core.reset();
+      }
+    }
 
-    if (_initialized) _core->draw();
+    if (!_initialized && windowAvailable && !initializationFuture.valid() &&
+        failedInitializationGeneration != windowGeneration && app->window != nullptr) {
+      auto* nativeWindow = app->window;
+      auto* assetManager = app->activity->assetManager;
+      const std::tuple resolution{ANativeWindow_getWidth(nativeWindow), ANativeWindow_getHeight(nativeWindow)};
+      initializationGeneration = windowGeneration;
+      initializationFuture = std::async(std::launch::async, [nativeWindow, assetManager, resolution] {
+        initialize(nativeWindow, assetManager, resolution);
+      });
+    }
 
-    ATrace_endSection();
+    if (_initialized && windowAvailable && resumed && focused) {
+      handle_input(app);
+      ATrace_beginSection("draw call");
+      _core->draw();
+      ATrace_endSection();
+    }
   } while (app->destroyRequested == 0);
 }

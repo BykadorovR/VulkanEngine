@@ -31,7 +31,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Postprocessing");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -47,10 +46,14 @@ Main::Main() {
   settings->setMaxFramesInFlight(2);
   settings->setThreadsInPool(6);
   settings->setDesiredFPS(1000);
+  settings->setAssetsPath("../assets/");
+  settings->setShadersPath("../assets/");
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _camera->setSpeed(0.05f, 0.01f);
@@ -67,28 +70,22 @@ Main::Main() {
   _directionalLight->setColor(glm::vec3(_directionalValue, _directionalValue, _directionalValue));
   _directionalLight->getCamera()->setPosition(glm::vec3(0.f, 20.f, 0.f));
 
-  // cube colored light
-  _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE);
-  _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightVertical->getMesh()->setColor(
-      std::vector{_cubeColoredLightVertical->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(_cubeColoredLightVertical);
+  {
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
+    _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
+    _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    _core->addDrawable(_cubeColoredLightVertical);
 
-  _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE);
-  _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightHorizontal->getMesh()->setColor(
-      std::vector{_cubeColoredLightHorizontal->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(_cubeColoredLightHorizontal);
+    _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE, meshCube);
+    _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    _core->addDrawable(_cubeColoredLightHorizontal);
 
-  auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE);
-  cubeColoredLightDirectional->getMesh()->setColor(
-      std::vector{cubeColoredLightDirectional->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
-  cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
-  _core->addDrawable(cubeColoredLightDirectional);
+    auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE, meshCube);
+    cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
+    _core->addDrawable(cubeColoredLightDirectional);
+  }
 
   auto fillMaterialPhong = [core = _core](std::shared_ptr<MaterialPhong> material) {
     if (material->getBaseColor().size() == 0)
@@ -111,16 +108,16 @@ Main::Main() {
                              core->getResourceManager()->getTextureZero());
   };
 
-  // cube colored
-  auto cubeColored = _core->createShape3D(ShapeType::CUBE);
-  cubeColored->setTranslate(glm::vec3(0.f, 3.f, -3.f));
-  cubeColored->getMesh()->setColor(
-      std::vector{cubeColored->getMesh()->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)},
-      _core->getCommandBufferApplication());
-  _core->addDrawable(cubeColored);
+  {
+    // cube colored
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 0.f, 0.f)});
+    auto cubeColored = _core->createShape3D(ShapeType::CUBE, meshCube);
+    cubeColored->setTranslate(glm::vec3(0.f, 3.f, -3.f));
 
+    _core->addDrawable(cubeColored);
+  }
   // TODO: color is not so bright in comparison with cube
-  // sphere PBR
   auto sphereColorPBR = _core->createTexture("../../shape/assets/rustediron2_basecolor.png",
                                              settings->getLoadTextureColorFormat(), mipMapLevels);
   auto sphereNormalPBR = _core->createTexture("../../shape/assets/rustediron2_normal.png",
@@ -140,12 +137,14 @@ Main::Main() {
   materialSpherePBR->setDiffuseIBL(_core->getResourceManager()->getCubemapZero()->getTexture());
   materialSpherePBR->setSpecularIBL(_core->getResourceManager()->getCubemapZero()->getTexture(),
                                     _core->getResourceManager()->getTextureZero());
-
-  auto sphereTexturedPBR = _core->createShape3D(ShapeType::SPHERE);
-  sphereTexturedPBR->setMaterial(materialSpherePBR);
-  sphereTexturedPBR->setTranslate(glm::vec3(-3.f, 3.f, -3.f));
-  _core->addDrawable(sphereTexturedPBR);
-
+  {
+    // sphere PBR
+    auto meshSphere = std::make_shared<MeshSphere>(_core->getEngineState());
+    auto sphereTexturedPBR = _core->createShape3D(ShapeType::SPHERE, meshSphere);
+    sphereTexturedPBR->setMaterial(materialSpherePBR);
+    sphereTexturedPBR->setTranslate(glm::vec3(-3.f, 3.f, -3.f));
+    _core->addDrawable(sphereTexturedPBR);
+  }
   // draw skeletal dancing model with one animation
   {
     auto gltfModelDancing = _core->createModelGLTF("../../model/assets/BrainStem/BrainStem.gltf");
@@ -172,7 +171,7 @@ Main::Main() {
                                            settings->getLoadTextureColorFormat(), mipMapLevels);
     auto tile3Color = _core->createTexture("../../terrain/assets/ground/albedo.png",
                                            settings->getLoadTextureColorFormat(), mipMapLevels);
-    auto terrainPhong = _core->createTerrainInterpolation(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
+    auto terrainPhong = _core->createTerrainComposition(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
     terrainPhong->setPatchNumber(12, 12);
     terrainPhong->initialize(_core->getCommandBufferApplication());
     auto materialPhong = _core->createMaterialPhong(MaterialTarget::TERRAIN);
@@ -184,8 +183,6 @@ Main::Main() {
 
     _core->addDrawable(terrainPhong);
   }
-
-  _core->endRecording();
 
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
@@ -229,18 +226,6 @@ void Main::update() {
   if (_core->getGUI()->drawInputFloat({{"gamma", &gamma}})) _core->getPostprocessing()->setGamma(gamma);
   float exposure = _core->getPostprocessing()->getExposure();
   if (_core->getGUI()->drawInputFloat({{"exposure", &exposure}})) _core->getPostprocessing()->setExposure(exposure);
-  int blurKernelSize = _core->getBloomBlur()->getKernelSize();
-  if (_core->getGUI()->drawInputInt({{"Kernel", &blurKernelSize}})) {
-    _core->getBloomBlur()->setKernelSize(blurKernelSize);
-  }
-  int blurSigma = _core->getBloomBlur()->getSigma();
-  if (_core->getGUI()->drawInputInt({{"Sigma", &blurSigma}})) {
-    _core->getBloomBlur()->setSigma(blurSigma);
-  }
-  int bloomPasses = _core->getEngineState()->getSettings()->getBloomPasses();
-  if (_core->getGUI()->drawInputInt({{"Passes", &bloomPasses}})) {
-    _core->getEngineState()->getSettings()->setBloomPasses(bloomPasses);
-  }
   _core->getGUI()->drawText({"Press 'c' to turn cursor on/off"});
   _core->getGUI()->endWindow();
 }

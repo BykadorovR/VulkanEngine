@@ -1,12 +1,14 @@
+#include <chrono>
+#include <optional>
 #include "Utility/GameState.h"
 
-GameState::GameState(std::shared_ptr<CommandBuffer> commandBuffer, std::shared_ptr<EngineState> engineState) {
+GameState::GameState(const RenderGraph::CommandBuffer* commandBuffer, std::shared_ptr<EngineState> engineState) {
   _resourceManager = std::make_shared<ResourceManager>(engineState);
 #ifdef __ANDROID__
   _resourceManager->setAssetManager(engineState->getAssetManager());
 #endif
-  _resourceManager->initialize(commandBuffer);
-  _lightManager = std::make_shared<LightManager>(_resourceManager, engineState);
+  _resourceManager->initialize();
+  _lightManager = std::make_shared<LightManager>(_resourceManager, engineState, *commandBuffer);
   _cameraManager = std::make_shared<CameraManager>();
 }
 

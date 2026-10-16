@@ -30,7 +30,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Sprite");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -46,10 +45,14 @@ Main::Main() {
   settings->setMaxFramesInFlight(2);
   settings->setThreadsInPool(6);
   settings->setDesiredFPS(1000);
+  settings->setAssetsPath("../assets/");
+  settings->setShadersPath("../assets/");
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setSpeed(0.05f, 0.01f);
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
@@ -67,24 +70,17 @@ Main::Main() {
   _directionalLight->getCamera()->setPosition(glm::vec3(0.f, 20.f, 0.f));
 
   // cube colored light
-  _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE);
+  auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+  meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
+  _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
   _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightVertical->getMesh()->setColor(
-      std::vector{_cubeColoredLightVertical->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
   _core->addDrawable(_cubeColoredLightVertical);
 
-  _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE);
+  _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE, meshCube);
   _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightHorizontal->getMesh()->setColor(
-      std::vector{_cubeColoredLightHorizontal->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
   _core->addDrawable(_cubeColoredLightHorizontal);
 
-  auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE);
-  cubeColoredLightDirectional->getMesh()->setColor(
-      std::vector{cubeColoredLightDirectional->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      _core->getCommandBufferApplication());
+  auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE, meshCube);
   cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
   cubeColoredLightDirectional->setTranslate(glm::vec3(0.f, 20.f, 0.f));
   _core->addDrawable(cubeColoredLightDirectional);
@@ -253,7 +249,6 @@ Main::Main() {
     sprite->setTranslate(glm::vec3(4.f, -4.f, -2.5f));
     _core->addDrawable(sprite);
   }
-  _core->endRecording();
 
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
@@ -282,16 +277,15 @@ void Main::update() {
 
   auto [FPSLimited, FPSReal] = _core->getFPS();
   auto [widthScreen, heightScreen] = _core->getEngineState()->getSettings()->getResolution();
-  _core->getGUI()->startWindow("Help");
-  _core->getGUI()->setWindowPosition({20, 20});
-  _core->getGUI()->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
-  _core->getGUI()->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
-  _core->getGUI()->drawText({"Press 'c' to turn cursor on/off"});
+  _gui->startWindow("Help");
+  _gui->setWindowPosition({20, 20});
+  _gui->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
+  _gui->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
+  _gui->drawText({"Press 'c' to turn cursor on/off"});
 
   std::map<std::string, int*> materialType;
   materialType["##Type"] = &_typeIndex;
-  if (_core->getGUI()->drawListBox({"Color", "Phong", "PBR"}, materialType, 3)) {
-    _core->startRecording();
+  if (_gui->drawListBox({"Color", "Phong", "PBR"}, materialType, 3)) {
     switch (_typeIndex) {
       case 0:
         _spriteTree->setMaterial(_materialColor);
@@ -303,9 +297,8 @@ void Main::update() {
         _spriteTree->setMaterial(_materialPBR);
         break;
     }
-    _core->endRecording();
   }
-  _core->getGUI()->endWindow();
+  _gui->endWindow();
 }
 
 void Main::reset(int width, int height) { _camera->setAspect((float)width / (float)height); }

@@ -1,12 +1,16 @@
 #pragma once
+#include <type_traits>
 #include <Jolt/Jolt.h>
 #include <Jolt/RegisterTypes.h>
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
-#include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Core/JobSystemWithBarrier.h>
+#include <Jolt/Core/FixedSizeFreeList.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <glm/glm.hpp>
+#include "BS_thread_pool.hpp"
+#include "Utility/EngineState.h"
 
 // Layer that objects can be in, determines which other objects it can collide with
 // Typically you at least want to have 1 layer for moving bodies and 1 layer for static bodies, but you can have more
@@ -96,12 +100,48 @@ class ObjectVsBroadPhaseLayerFilterImpl : public JPH::ObjectVsBroadPhaseLayerFil
   }
 };
 
+class CustomThreadPool : public JPH::JobSystemWithBarrier {
+ private:
+  std::shared_ptr<BS::thread_pool> _pool;
+  int _inNumThreads;
+  /// Array of jobs (fixed size)
+  using AvailableJobs = JPH::FixedSizeFreeList<Job>;
+  AvailableJobs _jobs;
+  std::shared_ptr<Logger> _logger;
+
+ public:
+  CustomThreadPool(int inMaxJobs,
+                   int inMaxBarriers,
+                   int inNumThreads,
+                   std::shared_ptr<Logger> logger,
+                   std::shared_ptr<BS::thread_pool> pool);
+  /// Create a new job, the job is started immediately if inNumDependencies == 0 otherwise it starts when
+  /// RemoveDependency causes the dependency counter to reach 0.
+  JPH::JobHandle CreateJob(const char* inName,
+                           JPH::ColorArg inColor,
+                           const JobFunction& inJobFunction,
+                           JPH::uint32 inNumDependencies) override;
+
+  /// Adds a job to the job queue
+  void QueueJob(Job* inJob) override;
+  /// Adds a number of jobs at once to the job queue
+  void QueueJobs(Job** inJobs, JPH::uint inNumJobs) override;
+
+  /// Get maximum number of concurrently executing jobs
+  int GetMaxConcurrency() const override;
+
+  /// Frees a job
+  void FreeJob(Job* inJob) override;
+  ~CustomThreadPool() override;
+};
+
 class PhysicsManager {
  private:
+  std::shared_ptr<EngineState> _engineState;
   JPH::PhysicsSystem _physicsSystem;
   std::shared_ptr<JPH::TempAllocatorImpl> _tempAllocator;
-  std::shared_ptr<JPH::JobSystemThreadPool> _jobSystem;
-  const float _deltaTime = 1.0f / 60.0f;
+  std::shared_ptr<CustomThreadPool> _jobSystem;
+  float _deltaTime = 1.0f / 60.0f;
   const int _collisionSteps = 1;
 
   // Create mapping table from object layer to broadphase layer
@@ -115,10 +155,11 @@ class PhysicsManager {
   ObjectLayerPairFilterImpl _objectVsObjectLayerFilter;
 
  public:
-  PhysicsManager();
+  PhysicsManager(std::shared_ptr<BS::thread_pool> pool, std::shared_ptr<EngineState> engineState);
   JPH::BodyInterface& getBodyInterface();
   JPH::PhysicsSystem& getPhysicsSystem();
   glm::vec3 getGravity();
+  void setDeltaTime(float deltaTime);
   float getDeltaTime();
   void update();
   ~PhysicsManager();

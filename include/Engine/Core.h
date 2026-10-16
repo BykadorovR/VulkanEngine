@@ -1,4 +1,17 @@
 #pragma once
+#include <glm/ext.hpp>
+#include <glm/glm.hpp>
+#include <functional>
+#include <future>
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+#include <vector>
+#include "BS_thread_pool.hpp"
 #include "Utility/EngineState.h"
 #include "Utility/GameState.h"
 #include "Utility/Settings.h"
@@ -7,9 +20,6 @@
 #include "Utility/Timer.h"
 #include "Utility/ResourceManager.h"
 #include "Utility/Animation.h"
-#include "Utility/GameState.h"
-#include "Vulkan/Render.h"
-#include "Vulkan/Swapchain.h"
 #include "Graphic/Postprocessing.h"
 #include "Graphic/Camera.h"
 #include "Graphic/LightManager.h"
@@ -23,37 +33,29 @@
 #include "Primitive/Line.h"
 #include "Primitive/Model.h"
 #include "Primitive/Equirectangular.h"
-#include "BS_thread_pool.hpp"
+
+import Buffer;
+import Command;
+import CommandPool;
+import Graph;
+import Swapchain;
+import Texture;
 
 class Core {
  private:
 #ifdef __ANDROID__
-  AAssetManager* _assetManager;
-  ANativeWindow* _nativeWindow;
+  AAssetManager* _assetManager = nullptr;
+  ANativeWindow* _nativeWindow = nullptr;
 #endif
   std::shared_ptr<EngineState> _engineState;
   std::shared_ptr<GameState> _gameState;
-  std::shared_ptr<Swapchain> _swapchain;
-  std::shared_ptr<ImageView> _depthAttachmentImageView;
-  // for compute render pass isn't needed
-  std::shared_ptr<RenderPass> _renderPassShadowMap, _renderPassGraphic, _renderPassDebug, _renderPassBlur;
-  std::vector<std::shared_ptr<Framebuffer>> _frameBufferGraphic, _frameBufferDebug;
-  std::shared_ptr<CommandPool> _commandPoolRender, _commandPoolApplication, _commandPoolInitialize,
-      _commandPoolParticleSystem, _commandPoolEquirectangular, _commandPoolPostprocessing, _commandPoolGUI;
-  std::shared_ptr<CommandBuffer> _commandBufferRender, _commandBufferApplication, _commandBufferInitialize,
-      _commandBufferEquirectangular, _commandBufferParticleSystem, _commandBufferPostprocessing, _commandBufferGUI;
-  std::shared_ptr<Logger> _logger, _loggerPostprocessing, _loggerParticles, _loggerGUI, _loggerDebug;
-  std::vector<std::shared_ptr<Logger>> _loggerDirectional;
-  std::vector<std::vector<std::shared_ptr<Logger>>> _loggerPoint;
+  std::unique_ptr<RenderGraph::Swapchain> _renderGraphSwapchain;
+  std::unique_ptr<RenderGraph::Graph> _renderGraph;
+  std::unique_ptr<RenderGraph::CommandPool> _applicationCommandPool;
+  std::vector<std::unique_ptr<RenderGraph::CommandBuffer>> _applicationCommandBuffers;
+  std::vector<VkFence> _frameFences;
+  std::vector<std::shared_ptr<RenderGraph::ImageView>> _graphicImageViews;
 
-  std::vector<std::shared_ptr<Semaphore>> _semaphoreImageAvailable, _semaphoreRenderFinished;
-  std::vector<std::shared_ptr<Semaphore>> _semaphoreParticleSystem, _semaphorePostprocessing, _semaphoreGUI;
-  std::vector<std::shared_ptr<Semaphore>> _semaphoreResourcesReady, _semaphoreApplicationReady;
-  std::map<int, bool> _waitSemaphoreResourcesReady, _waitSemaphoreApplicationReady;
-
-  std::vector<std::shared_ptr<Fence>> _fenceInFlight;
-
-  std::vector<std::shared_ptr<Texture>> _textureRender, _textureBlurIn, _textureBlurOut;
   std::set<std::shared_ptr<Material>> _materials;
   std::shared_ptr<GUI> _gui;
 
@@ -62,68 +64,62 @@ class Core {
   std::shared_ptr<TimerFPS> _timerFPSLimited;
 
   std::map<AlphaType, std::vector<std::shared_ptr<Drawable>>> _drawables;
-  std::map<int, std::vector<std::shared_ptr<Drawable>>> _unusedDrawable;
-  std::map<int, std::vector<std::shared_ptr<Shadowable>>> _unusedShadowable;
+  std::map<int, std::vector<std::shared_ptr<Drawable>>> _deferredDrawables;
+  std::map<int, std::vector<std::shared_ptr<Shadowable>>> _deferredShadowables;
   std::vector<std::shared_ptr<Shadowable>> _shadowables;
   std::vector<std::shared_ptr<Animation>> _animations;
   std::map<std::shared_ptr<Animation>, std::future<void>> _futureAnimationUpdate;
 
-  std::vector<std::shared_ptr<ParticleSystem>> _particleSystem;
+  std::vector<std::shared_ptr<ParticleSystemGraphic>> _particleSystems;
   std::shared_ptr<Postprocessing> _postprocessing;
-  std::shared_ptr<Skybox> _skybox = nullptr;
-  std::shared_ptr<BlurCompute> _blurCompute;
-  std::map<std::shared_ptr<DirectionalShadow>, std::shared_ptr<DirectionalShadowBlur>> _blurGraphicDirectional;
-  std::map<std::shared_ptr<PointShadow>, std::shared_ptr<PointShadowBlur>> _blurGraphicPoint;
-  std::shared_ptr<BS::thread_pool> _pool;
-  std::function<void()> _callbackUpdate;
-  std::function<void(int width, int height)> _callbackReset;
+  std::shared_ptr<Skybox> _skybox;
+  std::map<std::shared_ptr<DirectionalShadowResources>,
+           std::vector<std::pair<std::shared_ptr<BlurSeparate>, std::shared_ptr<BlurSeparate>>>>
+      _directionalShadowBlurPasses;
+  std::map<
+      std::shared_ptr<PointShadowResources>,
+      std::vector<std::pair<std::vector<std::shared_ptr<BlurSeparate>>, std::vector<std::shared_ptr<BlurSeparate>>>>>
+      _pointShadowBlurPasses;
+  std::map<std::shared_ptr<PointShadowResources>,
+           std::vector<std::pair<std::vector<std::shared_ptr<RenderGraph::Texture>>,
+                                 std::vector<std::shared_ptr<RenderGraph::Texture>>>>>
+      _pointShadowBlurTextures;
 
-  std::vector<std::vector<VkSubmitInfo>> _frameSubmitInfoPreCompute, _frameSubmitInfoPostCompute,
-      _frameSubmitInfoGraphic, _frameSubmitInfoDebug;
-  std::mutex _frameSubmitMutexGraphic;
+  std::shared_ptr<BS::thread_pool> _threadPool;
+  std::function<void(const RenderGraph::CommandBuffer* commandBuffer)> _updateCallback;
+  std::function<void(int width, int height)> _resetCallback;
+  bool _renderGraphDirty = true;
 
-  void _drawShadowMapDirectional(int index);
-  void _drawShadowMapPoint(int index, int face);
-  void _computeParticles();
-  void _drawShadowMapDirectionalBlur(std::shared_ptr<DirectionalShadow> directionalShadow);
-  void _drawShadowMapPointBlur(std::shared_ptr<PointShadow> pointShadow, int face);
-  void _computePostprocessing(int swapchainImageIndex);
-  void _debugVisualizations(int swapchainImageIndex);
-  void _initializeTextures();
-  void _initializeFramebuffer();
-  void _renderGraphic();
-
-  VkResult _getImageIndex(uint32_t* imageIndex);
-  void _displayFrame(uint32_t* imageIndex);
-  void _drawFrame(int imageIndex);
-  void _clearUnusedData();
-  void _reset();
+  void _buildRenderGraph();
+  void _resetRenderGraph();
+  void _initializeFrameResources();
+  void _addRenderGraphFlightImages(std::string_view name,
+                                   const std::vector<const RenderGraph::Image*>& images,
+                                   VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                   int layer = 0);
 
  public:
   Core(std::shared_ptr<Settings> settings);
+  ~Core();
 #ifdef __ANDROID__
   void setAssetManager(AAssetManager* assetManager);
   void setNativeWindow(ANativeWindow* window);
 #endif
   void initialize();
   void draw();
-  void registerUpdate(std::function<void()> update);
-  void registerReset(std::function<void(int width, int height)> reset);
+  void registerUpdate(std::function<void(const RenderGraph::CommandBuffer*)> update);
+  void registerReset(std::function<void(int, int)> reset);
 
-  void startRecording();
-  void endRecording();
   void setCamera(std::shared_ptr<Camera> camera);
   void addDrawable(std::shared_ptr<Drawable> drawable, AlphaType type = AlphaType::TRANSPARENT);
   void addShadowable(std::shared_ptr<Shadowable> shadowable);
-  // TODO: everything should be drawable
   void addSkybox(std::shared_ptr<Skybox> skybox);
-  void addParticleSystem(std::shared_ptr<ParticleSystem> particleSystem);
   void removeDrawable(std::shared_ptr<Drawable> drawable);
   void removeShadowable(std::shared_ptr<Shadowable> shadowable);
 
   std::shared_ptr<ImageCPU<uint8_t>> loadImageCPU(std::string path);
-  std::shared_ptr<BufferImage> loadImageGPU(std::shared_ptr<ImageCPU<uint8_t>> imageCPU);
-  std::shared_ptr<Texture> createTexture(std::string path, VkFormat format, int mipMapLevels);
+  std::shared_ptr<ImageDataBuffer> loadImageGPU(std::shared_ptr<ImageCPU<uint8_t>> imageCPU);
+  std::shared_ptr<RenderGraph::Texture> createTexture(std::string path, VkFormat format, int mipMapLevels);
   std::shared_ptr<Cubemap> createCubemap(std::vector<std::string> paths, VkFormat format, int mipMapLevels);
   std::shared_ptr<ModelGLTF> createModelGLTF(std::string path);
   std::shared_ptr<Animation> createAnimation(std::shared_ptr<ModelGLTF> modelGLTF);
@@ -131,41 +127,42 @@ class Core {
   std::shared_ptr<MaterialColor> createMaterialColor(MaterialTarget target);
   std::shared_ptr<MaterialPhong> createMaterialPhong(MaterialTarget target);
   std::shared_ptr<MaterialPBR> createMaterialPBR(MaterialTarget target);
-  std::shared_ptr<Shape3D> createShape3D(ShapeType shapeType, VkCullModeFlagBits cullMode = VK_CULL_MODE_BACK_BIT);
-  std::shared_ptr<Shape3D> createCapsule(float height,
-                                         float radius,
+  std::shared_ptr<Shape3D> createShape3D(ShapeType shapeType,
+                                         std::shared_ptr<Mesh3D> mesh,
                                          VkCullModeFlagBits cullMode = VK_CULL_MODE_BACK_BIT);
   std::shared_ptr<Model3D> createModel3D(std::shared_ptr<ModelGLTF> modelGLTF);
   std::shared_ptr<Sprite> createSprite();
-  std::shared_ptr<TerrainGPU> createTerrainInterpolation(std::shared_ptr<ImageCPU<uint8_t>> heightmap);
   std::shared_ptr<TerrainGPU> createTerrainComposition(std::shared_ptr<ImageCPU<uint8_t>> heightmap);
   std::shared_ptr<TerrainCPU> createTerrainCPU(std::vector<float> heights, std::tuple<int, int> resolution);
   std::shared_ptr<TerrainCPU> createTerrainCPU(std::shared_ptr<ImageCPU<uint8_t>> heightmap);
   std::shared_ptr<Line> createLine();
   std::shared_ptr<IBL> createIBL();
-  std::shared_ptr<ParticleSystem> createParticleSystem(std::vector<Particle> particles,
-                                                       std::shared_ptr<Texture> particleTexture);
+  std::shared_ptr<ParticleSystemGraphic> createParticleSystem(std::vector<Particle> particles,
+                                                              std::shared_ptr<RenderGraph::Texture> particleTexture);
   std::shared_ptr<Skybox> createSkybox();
   std::shared_ptr<PointLight> createPointLight();
   std::shared_ptr<DirectionalLight> createDirectionalLight();
   std::shared_ptr<AmbientLight> createAmbientLight();
-  std::shared_ptr<PointShadow> createPointShadow(std::shared_ptr<PointLight> pointLight, bool blur = false);
-  std::shared_ptr<DirectionalShadow> createDirectionalShadow(std::shared_ptr<DirectionalLight> directionalLight,
-                                                             bool blur = true);
+  std::shared_ptr<PointShadowResources> createPointShadow(std::shared_ptr<PointLight> pointLight, bool blur = false);
+  std::shared_ptr<DirectionalShadowResources> createDirectionalShadow(
+      std::shared_ptr<DirectionalLight> directionalLight,
+      bool blur = true);
+  std::shared_ptr<PhysicsManager> createPhysicsManager();
+  std::shared_ptr<GUI> createGUI();
+  std::shared_ptr<Postprocessing> createPostprocessing();
 
-  std::shared_ptr<CommandBuffer> getCommandBufferApplication();
+  const RenderGraph::CommandBuffer* getCommandBufferApplication();
   std::shared_ptr<ResourceManager> getResourceManager();
   const std::vector<std::shared_ptr<Drawable>>& getDrawables(AlphaType type);
-  std::vector<std::shared_ptr<PointLight>> getPointLights();
-  std::vector<std::shared_ptr<DirectionalLight>> getDirectionalLights();
-  std::vector<std::shared_ptr<PointShadow>> getPointShadows();
-  std::vector<std::shared_ptr<DirectionalShadow>> getDirectionalShadows();
+  const std::vector<std::shared_ptr<PointLight>>& getPointLights();
+  const std::vector<std::shared_ptr<DirectionalLight>>& getDirectionalLights();
+  const std::vector<std::shared_ptr<PointShadowResources>>& getPointShadows();
+  const std::vector<std::shared_ptr<DirectionalShadowResources>>& getDirectionalShadows();
   std::shared_ptr<Postprocessing> getPostprocessing();
-  std::shared_ptr<BlurCompute> getBloomBlur();
+  std::shared_ptr<GUI> getGUI();
 
   std::shared_ptr<EngineState> getEngineState();
   std::shared_ptr<GameState> getGameState();
   std::shared_ptr<Camera> getCamera();
-  std::shared_ptr<GUI> getGUI();
   std::tuple<int, int> getFPS();
 };

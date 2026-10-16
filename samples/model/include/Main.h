@@ -20,12 +20,15 @@ class Main {
  private:
   std::shared_ptr<Core> _core;
   std::shared_ptr<CameraFly> _camera;
+  std::shared_ptr<GUI> _gui;
   std::shared_ptr<InputHandler> _inputHandler;
 
   std::shared_ptr<PointLight> _pointLightVertical, _pointLightHorizontal;
   std::shared_ptr<DirectionalLight> _directionalLight;
   std::shared_ptr<Shape3D> _cubeColoredLightVertical, _cubeColoredLightHorizontal;
   std::shared_ptr<Animation> _animationFish;
+  std::shared_ptr<Model3D> _modelWalking;
+  std::shared_ptr<Shape3D> _capsule;
 
   int _typeIndex = 0;
   std::shared_ptr<Model3D> _modelBottle;

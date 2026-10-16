@@ -24,6 +24,7 @@ class InputHandler : public InputSubscriber {
 class Main {
  private:
   std::shared_ptr<Core> _core;
+  std::shared_ptr<GUI> _gui;
   std::shared_ptr<CameraFly> _cameraFly;
   std::shared_ptr<CameraRTS> _cameraRTS;
   std::shared_ptr<InputHandler> _inputHandler;
@@ -51,18 +52,11 @@ class Main {
   glm::vec3 _terrainScale = glm::vec3(1.f);
   void _createTerrainColor();
   float _speed = 3.f;
-  glm::vec3 _fading = {0.f, 0.f, 0.f};
   std::optional<glm::vec3> _endPoint;
-  std::optional<float> _stripeLeft, _stripeRight, _stripeTop, _stripeBot;
   std::vector<int> _patchTextures;
   std::vector<int> _patchRotationsIndex;
-  glm::vec3 _direction = {0.f, 0.f, 1.f};
-  float _angle = 0.f;
   float _modelScale = 2.f;
   float _boundingBoxScale = 1.5f;
-  glm::quat _rotation = glm::identity<glm::quat>();
-
-  void _loadTerrain(std::string path);
 
  public:
   Main();

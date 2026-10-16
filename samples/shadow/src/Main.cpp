@@ -34,7 +34,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Shadow");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -51,11 +50,15 @@ Main::Main() {
   settings->setMaxFramesInFlight(2);
   settings->setThreadsInPool(6);
   settings->setDesiredFPS(1000);
+  settings->setAssetsPath("../assets/");
+  settings->setShadersPath("../assets/");
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   auto commandBufferTransfer = _core->getCommandBufferApplication();
-  _core->startRecording();
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_camera));
@@ -74,29 +77,22 @@ Main::Main() {
   _directionalLight->getCamera()->setPosition(glm::vec3(0.f, 10.f, 0.f));
   _core->createDirectionalShadow(_directionalLight, true);
 
-  // cube colored light
-  _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE);
-  _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightVertical->getMesh()->setColor(
-      std::vector{_cubeColoredLightVertical->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      commandBufferTransfer);
-  _core->addDrawable(_cubeColoredLightVertical);
+  {
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    meshCube->setColor(std::vector{meshCube->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)});
+    _cubeColoredLightVertical = _core->createShape3D(ShapeType::CUBE, meshCube);
+    _cubeColoredLightVertical->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    _core->addDrawable(_cubeColoredLightVertical);
 
-  _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE);
-  _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  _cubeColoredLightHorizontal->getMesh()->setColor(
-      std::vector{_cubeColoredLightHorizontal->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      commandBufferTransfer);
-  _core->addDrawable(_cubeColoredLightHorizontal);
+    _cubeColoredLightHorizontal = _core->createShape3D(ShapeType::CUBE, meshCube);
+    _cubeColoredLightHorizontal->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    _core->addDrawable(_cubeColoredLightHorizontal);
 
-  auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE);
-  cubeColoredLightDirectional->getMesh()->setColor(
-      std::vector{cubeColoredLightDirectional->getMesh()->getVertexData().size(), glm::vec3(1.f, 1.f, 1.f)},
-      commandBufferTransfer);
-  cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
-  cubeColoredLightDirectional->setTranslate(_directionalLight->getCamera()->getPosition());
-  _core->addDrawable(cubeColoredLightDirectional);
-
+    auto cubeColoredLightDirectional = _core->createShape3D(ShapeType::CUBE, meshCube);
+    cubeColoredLightDirectional->setScale(glm::vec3(0.3f, 0.3f, 0.3f));
+    cubeColoredLightDirectional->setTranslate(_directionalLight->getCamera()->getPosition());
+    _core->addDrawable(cubeColoredLightDirectional);
+  }
   auto fillMaterialPhong = [core = _core](std::shared_ptr<MaterialPhong> material) {
     if (material->getBaseColor().size() == 0) material->setBaseColor({core->getResourceManager()->getTextureOne()});
     if (material->getNormal().size() == 0) material->setNormal({core->getResourceManager()->getTextureZero()});
@@ -157,7 +153,8 @@ Main::Main() {
     materialCubePhong->setNormal({cubemapNormalPhong->getTexture()});
     materialCubePhong->setSpecular({_core->getResourceManager()->getCubemapZero()->getTexture()});
 
-    auto cubeTexturedPhong = _core->createShape3D(ShapeType::CUBE);
+    auto meshCube = std::make_shared<MeshCube>(_core->getEngineState());
+    auto cubeTexturedPhong = _core->createShape3D(ShapeType::CUBE, meshCube);
     cubeTexturedPhong->setMaterial(materialCubePhong);
     cubeTexturedPhong->setTranslate(glm::vec3(0.f, -3.f, -3.f));
     _core->addDrawable(cubeTexturedPhong);
@@ -165,10 +162,10 @@ Main::Main() {
   }
   {
     // sphere colored
-    auto sphereColored = _core->createShape3D(ShapeType::SPHERE);
+    auto meshSphere = std::make_shared<MeshSphere>(_core->getEngineState());
+    meshSphere->setColor(std::vector{meshSphere->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)});
+    auto sphereColored = _core->createShape3D(ShapeType::SPHERE, meshSphere);
     sphereColored->setTranslate(glm::vec3(0.f, 0.f, -5.f));
-    sphereColored->getMesh()->setColor(
-        std::vector{sphereColored->getMesh()->getVertexData().size(), glm::vec3(0.f, 1.f, 0.f)}, commandBufferTransfer);
     _core->addDrawable(sphereColored);
     _core->addShadowable(sphereColored);
   }
@@ -197,7 +194,7 @@ Main::Main() {
                                            settings->getLoadTextureColorFormat(), mipMapLevels);
     auto tile3Color = _core->createTexture("../../terrain/assets/ground/albedo.png",
                                            settings->getLoadTextureColorFormat(), mipMapLevels);
-    auto terrainPhong = _core->createTerrainInterpolation(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
+    auto terrainPhong = _core->createTerrainComposition(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
     terrainPhong->setPatchNumber(12, 12);
     terrainPhong->initialize(_core->getCommandBufferApplication());
     auto materialTerrainPhong = _core->createMaterialPhong(MaterialTarget::TERRAIN);
@@ -272,7 +269,7 @@ Main::Main() {
     auto tile3AO = _core->createTexture("../../terrain/assets/ground/ao.png", settings->getLoadTextureAuxilaryFormat(),
                                         mipMapLevels);
 
-    auto terrainPBR = _core->createTerrainInterpolation(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
+    auto terrainPBR = _core->createTerrainComposition(_core->loadImageCPU("../../terrain/assets/heightmap.png"));
     terrainPBR->setPatchNumber(12, 12);
     terrainPBR->initialize(_core->getCommandBufferApplication());
     auto materialPBR = _core->createMaterialPBR(MaterialTarget::TERRAIN);
@@ -339,8 +336,6 @@ Main::Main() {
     _core->addShadowable(spriteTree);
   }
 
-  _core->endRecording();
-
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));
@@ -365,11 +360,11 @@ void Main::update() {
 
   auto [FPSLimited, FPSReal] = _core->getFPS();
   auto [widthScreen, heightScreen] = _core->getEngineState()->getSettings()->getResolution();
-  _core->getGUI()->startWindow("Help");
-  _core->getGUI()->setWindowPosition({20, 20});
-  _core->getGUI()->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
-  _core->getGUI()->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
-  if (_core->getGUI()->drawSlider(
+  _gui->startWindow("Help");
+  _gui->setWindowPosition({20, 20});
+  _gui->drawText({"Limited FPS: " + std::to_string(FPSLimited)});
+  _gui->drawText({"Maximum FPS: " + std::to_string(FPSReal)});
+  if (_gui->drawSlider(
           {{"Directional", &_directionalValue},
            {"Point horizontal", &_pointHorizontalValue},
            {"Point vertical", &_pointVerticalValue}},
@@ -378,16 +373,16 @@ void Main::update() {
     _pointLightHorizontal->setColor(glm::vec3(_pointHorizontalValue, _pointHorizontalValue, _pointHorizontalValue));
     _pointLightVertical->setColor(glm::vec3(_pointVerticalValue, _pointVerticalValue, _pointVerticalValue));
   }
-  _core->getGUI()->drawText({"Press 'c' to turn cursor on/off"});
+  _gui->drawText({"Press 'c' to turn cursor on/off"});
   auto eye = _camera->getEye();
   auto direction = _camera->getDirection();
-  if (_core->getGUI()->startTree("Coordinates")) {
-    _core->getGUI()->drawText({std::string("eye x: ") + std::format("{:.2f}", eye.x),
-                               std::string("eye y: ") + std::format("{:.2f}", eye.y),
-                               std::string("eye z: ") + std::format("{:.2f}", eye.z)});
-    _core->getGUI()->endTree();
+  if (_gui->startTree("Coordinates")) {
+    _gui->drawText({std::string("eye x: ") + std::format("{:.2f}", eye.x),
+                    std::string("eye y: ") + std::format("{:.2f}", eye.y),
+                    std::string("eye z: ") + std::format("{:.2f}", eye.z)});
+    _gui->endTree();
   }
-  _core->getGUI()->endWindow();
+  _gui->endWindow();
 }
 
 void Main::reset(int width, int height) { _camera->setAspect((float)width / (float)height); }

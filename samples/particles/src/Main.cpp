@@ -31,7 +31,6 @@ Main::Main() {
   int mipMapLevels = 4;
   auto settings = std::make_shared<Settings>();
   settings->setName("Sprite");
-  settings->setClearColor({0.01f, 0.01f, 0.01f, 1.f});
   // TODO: fullscreen if resolution is {0, 0}
   // TODO: validation layers complain if resolution is {2560, 1600}
   settings->setResolution(std::tuple{1920, 1080});
@@ -47,12 +46,16 @@ Main::Main() {
   settings->setMaxFramesInFlight(2);
   settings->setThreadsInPool(6);
   settings->setDesiredFPS(1000);
+  settings->setAssetsPath("../assets/");
+  settings->setShadersPath("../assets/");
 
   _core = std::make_shared<Core>(settings);
   _core->initialize();
-  _core->startRecording();
+  _gui = _core->createGUI();
+  _core->createPostprocessing();
+
   _camera = std::make_shared<CameraFly>(_core->getEngineState());
-  _camera->setSpeed(0.05f, 0.01f);
+  _camera->setSpeed(0.05f, 0.001f);
   _camera->setProjectionParameters(60.f, 0.1f, 100.f);
   _core->getEngineState()->getInput()->subscribe(std::dynamic_pointer_cast<InputSubscriber>(_camera));
   _inputHandler = std::make_shared<InputHandler>(_core);
@@ -92,7 +95,6 @@ Main::Main() {
     auto particleSystem = _core->createParticleSystem(particles, particleTexture);
     particleSystem->setScale(glm::vec3(0.5f, 0.5f, 0.5f));
     particleSystem->setTranslate(glm::vec3(0.f, 0.f, 2.f));
-    _core->addParticleSystem(particleSystem);
   }
   {
     // Initial particle positions on a circle
@@ -127,9 +129,7 @@ Main::Main() {
     auto particleSystem = _core->createParticleSystem(particles, particleTexture);
     particleSystem->setScale(glm::vec3(0.5f, 0.5f, 0.5f));
     particleSystem->setTranslate(glm::vec3(0.5f, 0.f, 2.f));
-    _core->addParticleSystem(particleSystem);
   }
-  _core->endRecording();
   _core->registerUpdate(std::bind(&Main::update, this));
   // can be lambda passed that calls reset
   _core->registerReset(std::bind(&Main::reset, this, std::placeholders::_1, std::placeholders::_2));

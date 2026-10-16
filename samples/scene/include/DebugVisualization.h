@@ -8,6 +8,7 @@
 class DebugVisualization {
  private:
   std::shared_ptr<Core> _core;
+  std::shared_ptr<GUI> _gui;
   std::vector<std::shared_ptr<Line>> _lineFrustum;
   std::shared_ptr<Sprite> _farPlaneCW, _farPlaneCCW;
   std::vector<std::shared_ptr<Model3D>> _pointLightModels, _directionalLightModels;
@@ -31,7 +32,6 @@ class DebugVisualization {
   bool _showPlanes = false;
   bool _planesRegistered = false;
   float _near, _far;
-  float _R, _G, _B;
   glm::vec3 _eyeSave = {0, 0, 3}, _dirSave = {0, 0, -1}, _upSave = {0, 1, 0}, _angles = {-90, 0, 0};
   float _directionalValue, _pointValue;
   std::shared_ptr<MaterialColor> _materialShadow;

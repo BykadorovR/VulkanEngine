@@ -162,6 +162,10 @@ void CameraFly::update() {
   if (_keyStatus[87]) {
     _eye += _moveSpeed * _direction;
   }
+
+  if (_keyStatus[83]) {
+    _eye -= _moveSpeed * _direction;
+  }
 #else
   if (_keyStatus[GLFW_KEY_W]) {
     _eye += _moveSpeed * _direction;
@@ -223,13 +227,15 @@ void CameraFly::cursorNotify(float xPos, float yPos) {
   if (_pitch < -89.0f) _pitch = -89.0f;
 }
 
-void CameraFly::mouseNotify(int button, int action, int mods) {
+void CameraFly::mouseNotify(int, int action, int) {
 #ifdef __ANDROID__
   if (action == 0) _once = false;
+#else
+  static_cast<void>(action);
 #endif
 }
 
-void CameraFly::keyNotify(int key, int scancode, int action, int mods) {
+void CameraFly::keyNotify(int key, int, int action, int) {
 #ifdef __ANDROID__
   if (action == 1) _keyStatus[key] = true;
   if (action == 0) _keyStatus[key] = false;
@@ -239,6 +245,6 @@ void CameraFly::keyNotify(int key, int scancode, int action, int mods) {
 #endif
 }
 
-void CameraFly::charNotify(unsigned int code) {}
+void CameraFly::charNotify(unsigned int) {}
 
-void CameraFly::scrollNotify(double xOffset, double yOffset) {}
+void CameraFly::scrollNotify(double, double) {}

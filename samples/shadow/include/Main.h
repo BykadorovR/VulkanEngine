@@ -21,7 +21,7 @@ class Main {
   std::shared_ptr<Core> _core;
   std::shared_ptr<CameraFly> _camera;
   std::shared_ptr<InputHandler> _inputHandler;
-
+  std::shared_ptr<GUI> _gui;
   std::shared_ptr<Shape3D> _cubeTextured, _cubeTexturedWireframe;
   std::shared_ptr<PointLight> _pointLightVertical, _pointLightHorizontal;
   std::shared_ptr<DirectionalLight> _directionalLight;

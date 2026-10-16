@@ -8,4 +8,7 @@ void CameraManager::setCurrentCamera(std::shared_ptr<Camera> camera) { _currentC
 
 std::shared_ptr<Camera> CameraManager::getCurrentCamera() { return _currentCamera; }
 
-void CameraManager::update() { _currentCamera->update(); }
+void CameraManager::update() {
+  if (_currentCamera == nullptr) throw std::runtime_error("No current camera was specified");
+  _currentCamera->update();
+}
