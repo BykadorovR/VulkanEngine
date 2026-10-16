@@ -226,8 +226,7 @@ BlurGraphicSeparate::BlurGraphicSeparate(bool horizontal,
   std::vector<RenderGraph::DescriptorSetLayout*> descriptorSetLayouts{_descriptorSetLayout.get()};
   const auto vertexBinding = _mesh->getBindingDescription();
   const auto vertexAttributes = _mesh->getAttributeDescriptions(
-      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)},
-       {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}});
+      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex2D, pos)}, {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex2D, texCoord)}});
   const VkPipelineVertexInputStateCreateInfo vertexInput{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
       .vertexBindingDescriptionCount = 1,

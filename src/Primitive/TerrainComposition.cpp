@@ -95,8 +95,7 @@ TerrainCompositionDebug::TerrainCompositionDebug(std::shared_ptr<ImageCPU<uint8_
   }
   const auto vertexBinding = _mesh.front()->getBindingDescription();
   const auto vertexAttributes = _mesh.front()->getAttributeDescriptions(
-      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-       {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)}});
+      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}, {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)}});
   const VkPipelineVertexInputStateCreateInfo vertexInput{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
       .vertexBindingDescriptionCount = 1,
@@ -686,8 +685,7 @@ void TerrainComposition::initialize(const RenderGraph::CommandBuffer* commandBuf
   _calculateMesh();
   const auto vertexBinding = _mesh->getBindingDescription();
   const auto vertexAttributes = _mesh->getAttributeDescriptions(
-      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-       {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)}});
+      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}, {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)}});
   const VkPipelineVertexInputStateCreateInfo vertexInput{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
       .vertexBindingDescriptionCount = 1,

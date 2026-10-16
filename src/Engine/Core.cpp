@@ -369,8 +369,7 @@ void Core::_buildRenderGraph() {
       particleSystem->releaseGraphResources();
     }
 
-    _renderGraph = std::make_unique<RenderGraph::Graph>(std::max(1, settings->getThreadsInPool()), frameCount,
-                                                        *device);
+    _renderGraph = std::make_unique<RenderGraph::Graph>(std::max(1, settings->getThreadsInPool()), frameCount, *device);
     _renderGraph->setSwapchain(*_renderGraphSwapchain);
     _renderGraph->initialize();
     _engineState->setFrameInFlight(_renderGraph->getFrameInFlight());
@@ -767,9 +766,9 @@ std::shared_ptr<ImageDataBuffer> Core::loadImageGPU(std::shared_ptr<ImageCPU<uin
 }
 
 std::shared_ptr<RenderGraph::Texture> Core::createTexture(std::string path, VkFormat format, int mipMapLevels) {
-  return _gameState->getResourceManager()->getImageManager().createTexture(
-      loadImageGPU(loadImageCPU(std::move(path))), format, VK_SAMPLER_ADDRESS_MODE_REPEAT, mipMapLevels,
-      VK_FILTER_LINEAR);
+  return _gameState->getResourceManager()->getImageManager().createTexture(loadImageGPU(loadImageCPU(std::move(path))),
+                                                                           format, VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                                                           mipMapLevels, VK_FILTER_LINEAR);
 }
 
 std::shared_ptr<Cubemap> Core::createCubemap(std::vector<std::string> paths, VkFormat format, int mipMapLevels) {
@@ -861,7 +860,8 @@ std::shared_ptr<IBL> Core::createIBL() {
 }
 
 std::shared_ptr<ParticleSystemGraphic> Core::createParticleSystem(
-    std::vector<Particle> particles, std::shared_ptr<RenderGraph::Texture> particleTexture) {
+    std::vector<Particle> particles,
+    std::shared_ptr<RenderGraph::Texture> particleTexture) {
   auto particleSystem = std::make_shared<ParticleSystemGraphic>(
       std::move(particles), std::move(particleTexture), _gameState, *getCommandBufferApplication(), _engineState);
   _particleSystems.push_back(particleSystem);
@@ -973,7 +973,8 @@ std::shared_ptr<PointShadowResources> Core::createPointShadow(std::shared_ptr<Po
 }
 
 std::shared_ptr<DirectionalShadowResources> Core::createDirectionalShadow(
-    std::shared_ptr<DirectionalLight> directionalLight, bool blur) {
+    std::shared_ptr<DirectionalLight> directionalLight,
+    bool blur) {
   auto shadow = _gameState->getLightManager()->createDirectionalShadow(std::move(directionalLight),
                                                                        getCommandBufferApplication());
   _renderGraphDirty = true;

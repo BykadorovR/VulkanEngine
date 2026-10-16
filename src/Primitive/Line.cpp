@@ -46,8 +46,7 @@ Line::Line(const RenderGraph::CommandBuffer* commandBufferTransfer,
   std::vector<RenderGraph::DescriptorSetLayout*> descriptorSetLayouts{_descriptorSetLayoutCamera.get()};
   const auto vertexBinding = _mesh->getBindingDescription();
   const auto vertexAttributes = _mesh->getAttributeDescriptions(
-      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-       {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}});
+      {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)}, {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}});
   const VkPipelineVertexInputStateCreateInfo vertexInput{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
       .vertexBindingDescriptionCount = 1,

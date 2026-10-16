@@ -27,13 +27,12 @@ std::shared_ptr<RenderGraph::Texture> ImageManager::createTexture(std::shared_pt
   return texture;
 }
 
-void ImageManager::updateTexture(const RenderGraph::Texture& texture,
-                                 const std::shared_ptr<ImageDataBuffer>& data) {
+void ImageManager::updateTexture(const RenderGraph::Texture& texture, const std::shared_ptr<ImageDataBuffer>& data) {
   const auto* imageBytes = static_cast<const std::byte*>(data->buffer->getAllocationInfo().pMappedData);
   const VkDeviceSize imageOffset = 0;
-  _engineState->getResourceUploader()->upload(
-      texture.getImageView().getImage(), std::span(imageBytes, static_cast<std::size_t>(data->buffer->getSize())),
-      std::span(&imageOffset, 1));
+  _engineState->getResourceUploader()->upload(texture.getImageView().getImage(),
+                                              std::span(imageBytes, static_cast<std::size_t>(data->buffer->getSize())),
+                                              std::span(&imageOffset, 1));
   _engineState->getResourceUploader()->submit();
 }
 

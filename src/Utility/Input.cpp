@@ -46,8 +46,7 @@ void Input::charHandler(unsigned int code) {
 void Input::scrollHandler(double xOffset, double yOffset) {
   if (_showCursor == true)
     for (const auto& weakSubscriber : _subscribersExclusive)
-      if (const auto subscriber = weakSubscriber.lock();
-          subscriber && subscriber->scrollNotify(xOffset, yOffset))
+      if (const auto subscriber = weakSubscriber.lock(); subscriber && subscriber->scrollNotify(xOffset, yOffset))
         return;
 
   for (const auto& weakSubscriber : _subscribers)

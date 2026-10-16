@@ -55,10 +55,9 @@ PointShadowResources::PointShadowResources(const RenderGraph::CommandBuffer* com
 
 std::vector<std::shared_ptr<Cubemap>> PointShadowResources::getShadowMapCubemap() { return _shadowMapCubemap; }
 
-DirectionalShadowRenderer::DirectionalShadowRenderer(
-    int shadowIndex,
-    const std::vector<std::shared_ptr<Shadowable>>& shadowables,
-    std::shared_ptr<EngineState> engineState)
+DirectionalShadowRenderer::DirectionalShadowRenderer(int shadowIndex,
+                                                     const std::vector<std::shared_ptr<Shadowable>>& shadowables,
+                                                     std::shared_ptr<EngineState> engineState)
     : _shadowables(&shadowables),
       _engineState(std::move(engineState)),
       _shadowIndex(shadowIndex) {}
@@ -73,8 +72,7 @@ void DirectionalShadowRenderer::draw(int currentFrame, const RenderGraph::Comman
       .clearValue = {.color = {{1.f, 1.f, 1.f, 1.f}}},
   };
   const VkClearRect clearRect{
-      .rect = {.offset = {0, 0},
-               .extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}},
+      .rect = {.offset = {0, 0}, .extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}},
       .baseArrayLayer = 0,
       .layerCount = 1,
   };
@@ -114,8 +112,7 @@ void PointShadowRenderer::draw(int currentFrame, const RenderGraph::CommandBuffe
       .clearValue = {.color = {{1.f, 1.f, 1.f, 1.f}}},
   };
   const VkClearRect clearRect{
-      .rect = {.offset = {0, 0},
-               .extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}},
+      .rect = {.offset = {0, 0}, .extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)}},
       .baseArrayLayer = 0,
       .layerCount = 1,
   };

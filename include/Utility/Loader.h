@@ -43,10 +43,10 @@ class ImageManager {
  public:
   ImageManager(std::shared_ptr<EngineState> engineState);
   std::shared_ptr<RenderGraph::Texture> createTexture(std::shared_ptr<ImageDataBuffer> data,
-                                                       VkFormat format,
-                                                       VkSamplerAddressMode mode,
-                                                       int mipMapLevels,
-                                                       VkFilter filter);
+                                                      VkFormat format,
+                                                      VkSamplerAddressMode mode,
+                                                      int mipMapLevels,
+                                                      VkFilter filter);
   void updateTexture(const RenderGraph::Texture& texture, const std::shared_ptr<ImageDataBuffer>& data);
 
   template <class T>

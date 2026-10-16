@@ -354,8 +354,8 @@ Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
       tangentCullOffPipelineGraphic.setDepthWrite(true);
       tangentCullOffPipelineGraphic.setCullMode(VK_CULL_MODE_NONE);
       _pipelineTangentMeshCullOff = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
-      _pipelineTangentMeshCullOff->createGraphic(
-          tangentCullOffPipelineGraphic, tangentShader->getShaderStageInfo(), normalLayouts, {}, tangentVertexInput);
+      _pipelineTangentMeshCullOff->createGraphic(tangentCullOffPipelineGraphic, tangentShader->getShaderStageInfo(),
+                                                 normalLayouts, {}, tangentVertexInput);
     }
   }
 
@@ -377,8 +377,8 @@ Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
     colorPipelineGraphic.setDepthWrite(true);
     colorPipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
     _pipeline[MaterialType::COLOR] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
-    _pipeline[MaterialType::COLOR]->createGraphic(
-        colorPipelineGraphic, shaderColor->getShaderStageInfo(), colorLayouts, {}, colorVertexInput);
+    _pipeline[MaterialType::COLOR]->createGraphic(colorPipelineGraphic, shaderColor->getShaderStageInfo(), colorLayouts,
+                                                  {}, colorVertexInput);
 
     RenderGraph::PipelineGraphic colorCullOffPipelineGraphic;
     colorCullOffPipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
@@ -387,8 +387,8 @@ Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
     colorCullOffPipelineGraphic.setDepthWrite(true);
     colorCullOffPipelineGraphic.setCullMode(VK_CULL_MODE_NONE);
     _pipelineCullOff[MaterialType::COLOR] = std::make_shared<RenderGraph::Pipeline>(*engineState->getDevice());
-    _pipelineCullOff[MaterialType::COLOR]->createGraphic(
-        colorCullOffPipelineGraphic, shaderColor->getShaderStageInfo(), colorLayouts, {}, colorVertexInput);
+    _pipelineCullOff[MaterialType::COLOR]->createGraphic(colorCullOffPipelineGraphic, shaderColor->getShaderStageInfo(),
+                                                         colorLayouts, {}, colorVertexInput);
 
     RenderGraph::PipelineGraphic colorWireframePipelineGraphic;
     colorWireframePipelineGraphic.setColorAttachments({engineState->getSettings()->getGraphicColorFormat()});
@@ -552,8 +552,8 @@ Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
     std::vector<RenderGraph::DescriptorSetLayout*> descriptorSetLayouts{_descriptorSetLayoutDepth.get(),
                                                                         _descriptorSetLayoutJoints.get()};
     _pipelineDirectional = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
-    _pipelineDirectional->createGraphic(
-        pipelineGraphic, shaderDirectional->getShaderStageInfo(), descriptorSetLayouts, {}, shadowVertexInput);
+    _pipelineDirectional->createGraphic(pipelineGraphic, shaderDirectional->getShaderStageInfo(), descriptorSetLayouts,
+                                        {}, shadowVertexInput);
   }
 
   // initialize depth point

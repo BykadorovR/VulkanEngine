@@ -453,7 +453,8 @@ std::shared_ptr<PointLight> LightManager::createPointLight() {
 }
 
 std::shared_ptr<PointShadowResources> LightManager::createPointShadow(
-    std::shared_ptr<PointLight> pointLight, const RenderGraph::CommandBuffer* commandBufferTransfer) {
+    std::shared_ptr<PointLight> pointLight,
+    const RenderGraph::CommandBuffer* commandBufferTransfer) {
   std::unique_lock<std::mutex> accessLock(_accessMutex);
   auto shadow = std::make_shared<PointShadowResources>(commandBufferTransfer, _engineState);
   const auto lightIterator = std::find(_pointLights.begin(), _pointLights.end(), pointLight);
@@ -653,8 +654,7 @@ void LightManager::update(int currentFrame, const RenderGraph::CommandBuffer& co
   std::unique_lock<std::mutex> accessLock(_accessMutex);
   for (const auto& pointShadow : _pointShadows) {
     if (!pointShadow) continue;
-    const auto& image =
-        pointShadow->getShadowMapCubemap().at(currentFrame)->getTexture()->getImageView().getImage();
+    const auto& image = pointShadow->getShadowMapCubemap().at(currentFrame)->getTexture()->getImageView().getImage();
     const VkImageMemoryBarrier2 barrier{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,

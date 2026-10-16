@@ -183,9 +183,9 @@ Sprite::Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
     colorPipelineGraphic.setDepthWrite(true);
     colorPipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
     _pipeline[MaterialType::COLOR] = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
-    _pipeline[MaterialType::COLOR]->createGraphic(
-        colorPipelineGraphic, _shader[MaterialType::COLOR]->getShaderStageInfo(), colorLayouts, {},
-        materialVertexInput);
+    _pipeline[MaterialType::COLOR]->createGraphic(colorPipelineGraphic,
+                                                  _shader[MaterialType::COLOR]->getShaderStageInfo(), colorLayouts, {},
+                                                  materialVertexInput);
 
     RenderGraph::PipelineGraphic colorWireframePipelineGraphic;
     colorWireframePipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
@@ -197,9 +197,9 @@ Sprite::Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
     colorWireframePipelineGraphic.setPolygonMode(VK_POLYGON_MODE_LINE);
 #endif
     _pipelineWireframe[MaterialType::COLOR] = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
-    _pipelineWireframe[MaterialType::COLOR]->createGraphic(
-        colorWireframePipelineGraphic, _shader[MaterialType::COLOR]->getShaderStageInfo(), colorLayouts, {},
-        materialVertexInput);
+    _pipelineWireframe[MaterialType::COLOR]->createGraphic(colorWireframePipelineGraphic,
+                                                           _shader[MaterialType::COLOR]->getShaderStageInfo(),
+                                                           colorLayouts, {}, materialVertexInput);
   }
 
   _shaderDirectional = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
@@ -281,9 +281,9 @@ Sprite::Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
     phongPipelineGraphic.setDepthWrite(true);
     phongPipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
     _pipeline[MaterialType::PHONG] = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
-    _pipeline[MaterialType::PHONG]->createGraphic(
-        phongPipelineGraphic, _shader[MaterialType::PHONG]->getShaderStageInfo(), phongLayouts, phongPushConstants,
-        litVertexInput);
+    _pipeline[MaterialType::PHONG]->createGraphic(phongPipelineGraphic,
+                                                  _shader[MaterialType::PHONG]->getShaderStageInfo(), phongLayouts,
+                                                  phongPushConstants, litVertexInput);
 
     RenderGraph::PipelineGraphic phongWireframePipelineGraphic;
     phongWireframePipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
@@ -295,9 +295,9 @@ Sprite::Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
     phongWireframePipelineGraphic.setPolygonMode(VK_POLYGON_MODE_LINE);
 #endif
     _pipelineWireframe[MaterialType::PHONG] = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
-    _pipelineWireframe[MaterialType::PHONG]->createGraphic(
-        phongWireframePipelineGraphic, _shader[MaterialType::PHONG]->getShaderStageInfo(), phongLayouts,
-        phongPushConstants, litVertexInput);
+    _pipelineWireframe[MaterialType::PHONG]->createGraphic(phongWireframePipelineGraphic,
+                                                           _shader[MaterialType::PHONG]->getShaderStageInfo(),
+                                                           phongLayouts, phongPushConstants, litVertexInput);
   }
 
   // setup PBR
@@ -332,9 +332,8 @@ Sprite::Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
     pbrPipelineGraphic.setDepthWrite(true);
     pbrPipelineGraphic.setCullMode(VK_CULL_MODE_BACK_BIT);
     _pipeline[MaterialType::PBR] = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
-    _pipeline[MaterialType::PBR]->createGraphic(
-        pbrPipelineGraphic, _shader[MaterialType::PBR]->getShaderStageInfo(), pbrLayouts, pbrPushConstants,
-        litVertexInput);
+    _pipeline[MaterialType::PBR]->createGraphic(pbrPipelineGraphic, _shader[MaterialType::PBR]->getShaderStageInfo(),
+                                                pbrLayouts, pbrPushConstants, litVertexInput);
 
     RenderGraph::PipelineGraphic pbrWireframePipelineGraphic;
     pbrWireframePipelineGraphic.setColorAttachments({_engineState->getSettings()->getGraphicColorFormat()});
@@ -346,9 +345,9 @@ Sprite::Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
     pbrWireframePipelineGraphic.setPolygonMode(VK_POLYGON_MODE_LINE);
 #endif
     _pipelineWireframe[MaterialType::PBR] = std::make_shared<RenderGraph::Pipeline>(*_engineState->getDevice());
-    _pipelineWireframe[MaterialType::PBR]->createGraphic(
-        pbrWireframePipelineGraphic, _shader[MaterialType::PBR]->getShaderStageInfo(), pbrLayouts, pbrPushConstants,
-        litVertexInput);
+    _pipelineWireframe[MaterialType::PBR]->createGraphic(pbrWireframePipelineGraphic,
+                                                         _shader[MaterialType::PBR]->getShaderStageInfo(), pbrLayouts,
+                                                         pbrPushConstants, litVertexInput);
   }
 
   // initialize depth directional

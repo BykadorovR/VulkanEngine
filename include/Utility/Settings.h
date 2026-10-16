@@ -40,9 +40,9 @@ struct Settings {
   int _anisotropicSamples = 0;
   // TODO: protect by mutex?
   int _desiredFPS = 250;
-  std::vector<std::tuple<int, float>> _attenuations = {{7, 1.8f},      {13, 0.44f},    {20, 0.20f},    {32, 0.07f},
-                                                       {50, 0.032f},   {65, 0.017f},   {100, 0.0075f}, {160, 0.0028f},
-                                                       {200, 0.0019f}, {325, 0.0007f}, {600, 0.0002f}, {3250, 0.000007f}};
+  std::vector<std::tuple<int, float>> _attenuations = {
+      {7, 1.8f},      {13, 0.44f},    {20, 0.20f},    {32, 0.07f},    {50, 0.032f},   {65, 0.017f},
+      {100, 0.0075f}, {160, 0.0028f}, {200, 0.0019f}, {325, 0.0007f}, {600, 0.0002f}, {3250, 0.000007f}};
   // Depth bias (and slope) are used to avoid shadowing artifacts
   // Constant depth bias factor (always applied)
   float _depthBiasConstant = 1.25f;

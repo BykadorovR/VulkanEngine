@@ -65,8 +65,8 @@ class LightManager {
   std::shared_ptr<AmbientLight> createAmbientLight();
   std::vector<std::shared_ptr<AmbientLight>> getAmbientLights();
   std::shared_ptr<PointLight> createPointLight();
-  std::shared_ptr<PointShadowResources> createPointShadow(
-      std::shared_ptr<PointLight> pointLight, const RenderGraph::CommandBuffer* commandBufferTransfer);
+  std::shared_ptr<PointShadowResources> createPointShadow(std::shared_ptr<PointLight> pointLight,
+                                                          const RenderGraph::CommandBuffer* commandBufferTransfer);
   const std::vector<std::shared_ptr<PointLight>>& getPointLights();
   const std::vector<std::shared_ptr<PointShadowResources>>& getPointShadows();
   void removePointLight(std::shared_ptr<PointLight> pointLight);

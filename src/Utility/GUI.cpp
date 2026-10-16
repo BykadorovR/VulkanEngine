@@ -303,8 +303,7 @@ void GUI::draw(int, const RenderGraph::CommandBuffer& commandBuffer) {
     VkDeviceSize offsets[1] = {0};
     const auto vertexBuffer = _vertexBuffer[current]->getBuffer();
     vkCmdBindVertexBuffers(commandBuffer.getCommandBuffer(), 0, 1, &vertexBuffer, offsets);
-    vkCmdBindIndexBuffer(commandBuffer.getCommandBuffer(), _indexBuffer[current]->getBuffer(), 0,
-                         VK_INDEX_TYPE_UINT16);
+    vkCmdBindIndexBuffer(commandBuffer.getCommandBuffer(), _indexBuffer[current]->getBuffer(), 0, VK_INDEX_TYPE_UINT16);
 
     for (int32_t i = 0; i < imDrawData->CmdListsCount; i++) {
       const ImDrawList* cmdList = imDrawData->CmdLists[i];

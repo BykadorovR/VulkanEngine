@@ -137,15 +137,16 @@ class Core {
   std::shared_ptr<TerrainCPU> createTerrainCPU(std::shared_ptr<ImageCPU<uint8_t>> heightmap);
   std::shared_ptr<Line> createLine();
   std::shared_ptr<IBL> createIBL();
-  std::shared_ptr<ParticleSystemGraphic> createParticleSystem(
-      std::vector<Particle> particles, std::shared_ptr<RenderGraph::Texture> particleTexture);
+  std::shared_ptr<ParticleSystemGraphic> createParticleSystem(std::vector<Particle> particles,
+                                                              std::shared_ptr<RenderGraph::Texture> particleTexture);
   std::shared_ptr<Skybox> createSkybox();
   std::shared_ptr<PointLight> createPointLight();
   std::shared_ptr<DirectionalLight> createDirectionalLight();
   std::shared_ptr<AmbientLight> createAmbientLight();
   std::shared_ptr<PointShadowResources> createPointShadow(std::shared_ptr<PointLight> pointLight, bool blur = false);
   std::shared_ptr<DirectionalShadowResources> createDirectionalShadow(
-      std::shared_ptr<DirectionalLight> directionalLight, bool blur = true);
+      std::shared_ptr<DirectionalLight> directionalLight,
+      bool blur = true);
   std::shared_ptr<PhysicsManager> createPhysicsManager();
   std::shared_ptr<GUI> createGUI();
   std::shared_ptr<Postprocessing> createPostprocessing();

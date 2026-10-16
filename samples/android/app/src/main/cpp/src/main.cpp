@@ -614,7 +614,6 @@ void initialize(ANativeWindow* nativeWindow, AAssetManager* assetManager, std::t
   }
 
   _core->registerUpdate(std::bind(&update));
-
 }
 
 void terminate() {

@@ -141,11 +141,10 @@ std::size_t ParticleSystemGraphic::getParticleCount() const { return _particles.
 
 float ParticleSystemGraphic::getFrameTimer() const { return _frameTimer; }
 
-ParticleSystemCompute::ParticleSystemCompute(
-    std::shared_ptr<ParticleSystemGraphic> particleSystemGraphic,
-    std::vector<RenderGraph::Buffer*> particleBuffers,
-    const RenderGraph::CommandBuffer& commandBuffer,
-    std::shared_ptr<EngineState> engineState)
+ParticleSystemCompute::ParticleSystemCompute(std::shared_ptr<ParticleSystemGraphic> particleSystemGraphic,
+                                             std::vector<RenderGraph::Buffer*> particleBuffers,
+                                             const RenderGraph::CommandBuffer& commandBuffer,
+                                             std::shared_ptr<EngineState> engineState)
     : _particleSystemGraphic(std::move(particleSystemGraphic)),
       _engineState(std::move(engineState)),
       _particlesBuffer(std::move(particleBuffers)) {
@@ -180,8 +179,8 @@ void ParticleSystemCompute::_initializeDescriptors(const RenderGraph::CommandBuf
   _descriptorSets.resize(frameCount);
   for (int frame = 0; frame < frameCount; ++frame) {
     _descriptorSets[frame] = std::make_shared<RenderGraph::DescriptorSet>(
-        std::vector<RenderGraph::DescriptorSetLayout*>{_descriptorSetLayout.get()},
-        *_engineState->getDescriptorPool(), *_engineState->getDevice(), 0);
+        std::vector<RenderGraph::DescriptorSetLayout*>{_descriptorSetLayout.get()}, *_engineState->getDescriptorPool(),
+        *_engineState->getDevice(), 0);
     _descriptorSets[frame]->add({_deltaUniformBuffer[frame].get()});
     _descriptorSets[frame]->add({_particlesBuffer[(frame + frameCount - 1) % frameCount]});
     _descriptorSets[frame]->add({_particlesBuffer[frame]});
@@ -191,9 +190,9 @@ void ParticleSystemCompute::_initializeDescriptors(const RenderGraph::CommandBuf
 
 void ParticleSystemCompute::draw(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) {
   const auto logger = _engineState->getLogger();
-  logger->begin("Particle system compute " + _particleSystemGraphic->getName() + ", frame: " +
-                    std::to_string(currentFrame),
-                &commandBuffer);
+  logger->begin(
+      "Particle system compute " + _particleSystemGraphic->getName() + ", frame: " + std::to_string(currentFrame),
+      &commandBuffer);
 
   const auto frameCount = static_cast<int>(_particlesBuffer.size());
   const auto previousFrame = (currentFrame + frameCount - 1) % frameCount;
@@ -246,8 +245,8 @@ void ParticleSystemCompute::draw(int currentFrame, const RenderGraph::CommandBuf
   vkCmdPipelineBarrier2(commandBuffer.getCommandBuffer(), &dependencyBefore);
 
   const float timeDelta = _particleSystemGraphic->getFrameTimer() * 2.f;
-  std::memcpy(static_cast<std::byte*>(_deltaUniformBuffer[currentFrame]->getAllocationInfo().pMappedData),
-              &timeDelta, static_cast<std::size_t>(_deltaUniformBuffer[currentFrame]->getSize()));
+  std::memcpy(static_cast<std::byte*>(_deltaUniformBuffer[currentFrame]->getAllocationInfo().pMappedData), &timeDelta,
+              static_cast<std::size_t>(_deltaUniformBuffer[currentFrame]->getSize()));
 
   vkCmdBindPipeline(commandBuffer.getCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline->getPipeline());
 

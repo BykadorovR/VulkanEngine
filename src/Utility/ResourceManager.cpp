@@ -13,9 +13,9 @@ void ResourceManager::initialize() {
   const std::array textureTargets{&_stubTextureOne, &_stubTextureZero};
   for (std::size_t i = 0; i < texturePaths.size(); ++i) {
     auto imageData = _imageManager->loadGPU<uint8_t>({_imageManager->loadCPU<uint8_t>(texturePaths[i])});
-    *textureTargets[i] =
-        _imageManager->createTexture(imageData, _engineState->getSettings()->getLoadTextureColorFormat(),
-                                     VK_SAMPLER_ADDRESS_MODE_REPEAT, 1, VK_FILTER_LINEAR);
+    *textureTargets[i] = _imageManager->createTexture(imageData,
+                                                      _engineState->getSettings()->getLoadTextureColorFormat(),
+                                                      VK_SAMPLER_ADDRESS_MODE_REPEAT, 1, VK_FILTER_LINEAR);
   }
 
   _stubCubemapZero = std::make_shared<Cubemap>(

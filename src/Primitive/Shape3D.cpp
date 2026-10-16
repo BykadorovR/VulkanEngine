@@ -130,15 +130,13 @@ Shape3D::Shape3D(ShapeType shapeType,
   };
   const auto colorVertexAttributes =
       shapeType == ShapeType::CUBE
-          ? _mesh->getAttributeDescriptions(
-                {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
-                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}})
-          : _mesh->getAttributeDescriptions(
-                {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
-                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)},
-                 {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)}});
+          ? _mesh->getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
+                                             {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
+                                             {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)}})
+          : _mesh->getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
+                                             {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
+                                             {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)},
+                                             {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)}});
   const VkPipelineVertexInputStateCreateInfo colorVertexInput{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
       .vertexBindingDescriptionCount = 1,
@@ -148,17 +146,15 @@ Shape3D::Shape3D(ShapeType shapeType,
   };
   const auto litVertexAttributes =
       shapeType == ShapeType::CUBE
-          ? _mesh->getAttributeDescriptions(
-                {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
-                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)},
-                 {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, tangent)}})
-          : _mesh->getAttributeDescriptions(
-                {{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
-                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
-                 {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)},
-                 {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)},
-                 {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, tangent)}});
+          ? _mesh->getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
+                                             {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
+                                             {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)},
+                                             {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, tangent)}})
+          : _mesh->getAttributeDescriptions({{VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, pos)},
+                                             {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, normal)},
+                                             {VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex3D, color)},
+                                             {VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex3D, texCoord)},
+                                             {VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(Vertex3D, tangent)}});
   const VkPipelineVertexInputStateCreateInfo litVertexInput{
       .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
       .vertexBindingDescriptionCount = 1,
