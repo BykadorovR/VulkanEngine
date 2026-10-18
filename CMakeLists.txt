@@ -131,7 +131,7 @@ set(RENDER_GRAPH_BUILD_TESTS OFF CACHE BOOL "Build the RenderGraph test suite" F
 FetchContent_Declare(
   renderGraph
   GIT_REPOSITORY https://github.com/BykadorovR/RenderGraph.git
-  GIT_TAG        master
+  GIT_TAG        dev
 )
 
 set(vulkanEngineDependencies

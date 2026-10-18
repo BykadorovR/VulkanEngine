@@ -105,6 +105,6 @@ class VertexBufferStatic : public VertexBuffer<T> {
 
     const auto bytes = std::as_bytes(std::span(this->_vertices));
     this->_engineState->getResourceUploader()->upload(*this->_buffer, bytes);
-    this->_engineState->getResourceUploader()->submit();
+    this->_engineState->getUploadTickets().push_back(this->_engineState->getResourceUploader()->submit());
   }
 };

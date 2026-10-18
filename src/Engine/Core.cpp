@@ -648,12 +648,22 @@ void Core::draw() {
 
     auto& applicationCommandBuffer = *_applicationCommandBuffers.at(frameInFlight);
     applicationCommandBuffer.endCommands();
+    const auto& uploadTickets = _engineState->getUploadTickets();
+    // Wait for uploads before application commands and subsequent Graph submissions on the graphics queue.
+    const VkSemaphoreSubmitInfo uploadWaitInfo{
+        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        .semaphore = uploadTickets.empty() ? VK_NULL_HANDLE : uploadTickets.back().semaphore,
+        .value = uploadTickets.empty() ? 0 : uploadTickets.back().value,
+        .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+    };
     const VkCommandBufferSubmitInfo commandBufferInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
         .commandBuffer = applicationCommandBuffer.getCommandBuffer(),
     };
     const VkSubmitInfo2 applicationSubmitInfo{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        .waitSemaphoreInfoCount = uploadTickets.empty() ? 0u : 1u,
+        .pWaitSemaphoreInfos = &uploadWaitInfo,
         .commandBufferInfoCount = 1,
         .pCommandBufferInfos = &commandBufferInfo,
     };
@@ -661,6 +671,8 @@ void Core::draw() {
         VK_SUCCESS) {
       throw std::runtime_error("failed to submit application commands");
     }
+
+    _engineState->getUploadTickets().clear();
 
     if (_renderGraph->render()) {
       _resetRenderGraph();

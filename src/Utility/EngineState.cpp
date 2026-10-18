@@ -71,6 +71,8 @@ std::shared_ptr<Filesystem> EngineState::getFilesystem() { return _filesystem; }
 
 std::shared_ptr<RenderGraph::ResourceUploader> EngineState::getResourceUploader() { return _resourceUploader; }
 
+std::vector<RenderGraph::UploadTicket>& EngineState::getUploadTickets() { return _uploadTickets; }
+
 std::shared_ptr<Logger> EngineState::getLogger() { return _logger; }
 
 std::shared_ptr<DebugUtils> EngineState::getDebugUtils() { return _debugUtils; }
