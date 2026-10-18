@@ -38,6 +38,7 @@ import Buffer;
 import Command;
 import CommandPool;
 import Graph;
+import Instrumentation;
 import Swapchain;
 import Texture;
 
@@ -50,6 +51,7 @@ class Core {
   std::shared_ptr<EngineState> _engineState;
   std::shared_ptr<GameState> _gameState;
   std::unique_ptr<RenderGraph::Swapchain> _renderGraphSwapchain;
+  std::unique_ptr<RenderGraph::Tracer> _tracer;
   std::unique_ptr<RenderGraph::Graph> _renderGraph;
   std::unique_ptr<RenderGraph::CommandPool> _applicationCommandPool;
   std::vector<std::unique_ptr<RenderGraph::CommandBuffer>> _applicationCommandBuffers;

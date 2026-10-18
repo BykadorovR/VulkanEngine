@@ -4,6 +4,8 @@
 
 This project is a cross-platform (Windows, Linux, Android) graphic engine utilizing the Vulkan API, offering a comprehensive set of features to facilitate the development of visually compelling applications. The engine includes support for terrain rendering, various lighting models, particle systems, skeletal animation and more.
 
+At its core, Vulkan Engine is powered by [RenderGraph](https://github.com/BykadorovR/RenderGraph), which manages rendering passes, GPU resources and synchronization.
+
 # Structure
 
 - **dev/master** branch contains classic rasterization engine

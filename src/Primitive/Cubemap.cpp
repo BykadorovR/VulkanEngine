@@ -20,7 +20,7 @@ Cubemap::Cubemap(std::shared_ptr<ImageDataBuffer> data,
                                  data->getChannels();
   const std::array<VkDeviceSize, 6> offsets{0, imageSize, imageSize * 2, imageSize * 3, imageSize * 4, imageSize * 5};
   _engineState->getResourceUploader()->upload(*image, imageBytes, offsets);
-  _engineState->getResourceUploader()->submit();
+  _engineState->getUploadTickets().push_back(_engineState->getResourceUploader()->submit());
 
   _imageViewSeparate.resize(6);
   _textureSeparate.resize(6);

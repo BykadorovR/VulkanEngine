@@ -33,7 +33,7 @@ void ImageManager::updateTexture(const RenderGraph::Texture& texture, const std:
   _engineState->getResourceUploader()->upload(texture.getImageView().getImage(),
                                               std::span(imageBytes, static_cast<std::size_t>(data->buffer->getSize())),
                                               std::span(&imageOffset, 1));
-  _engineState->getResourceUploader()->submit();
+  _engineState->getUploadTickets().push_back(_engineState->getResourceUploader()->submit());
 }
 
 ImageManager::ImageManager(std::shared_ptr<EngineState> engineState) { _engineState = engineState; }
@@ -319,7 +319,7 @@ std::shared_ptr<RenderGraph::Texture> LoaderGLTF::_loadTexture(
       _engineState->getResourceUploader()->upload(
           *image, std::span(imageBytes, static_cast<std::size_t>(stagingBuffer->getSize())),
           std::span(&imageOffset, 1));
-      _engineState->getResourceUploader()->submit();
+      _engineState->getUploadTickets().push_back(_engineState->getResourceUploader()->submit());
 
       auto imageView = std::make_shared<RenderGraph::ImageView>(std::move(image), *_engineState->getDevice());
       imageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);
