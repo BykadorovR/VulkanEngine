@@ -8,12 +8,7 @@ This sample demonstrates skeletal animations and static models with different li
 
 ## Build
 
-- Download assets
-
-  If assets were downloaded during engine setup, this step can be skipped then, otherwise:
-  ```
-  python download.py
-  ```
+- Download assets by running `python download.py` from the repository root. Skip this step if it was already done during engine setup.
 - Build project
   ```
   mkdir build

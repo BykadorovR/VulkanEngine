@@ -110,7 +110,11 @@ void Core::_initializeFrameResources() {
   const int frameCount = settings->getMaxFramesInFlight();
 
   // Render graph.
-  _renderGraph = std::make_unique<RenderGraph::Graph>(std::max(1, settings->getThreadsInPool()), frameCount, *device);
+  if (!_tracer) {
+    _tracer = std::make_unique<RenderGraph::Tracer>(*device);
+  }
+  _renderGraph =
+      std::make_unique<RenderGraph::Graph>(std::max(1, settings->getThreadsInPool()), frameCount, *device, *_tracer);
   _renderGraph->setSwapchain(*_renderGraphSwapchain);
   _renderGraph->initialize();
 
@@ -369,7 +373,8 @@ void Core::_buildRenderGraph() {
       particleSystem->releaseGraphResources();
     }
 
-    _renderGraph = std::make_unique<RenderGraph::Graph>(std::max(1, settings->getThreadsInPool()), frameCount, *device);
+    _renderGraph =
+        std::make_unique<RenderGraph::Graph>(std::max(1, settings->getThreadsInPool()), frameCount, *device, *_tracer);
     _renderGraph->setSwapchain(*_renderGraphSwapchain);
     _renderGraph->initialize();
     _engineState->setFrameInFlight(_renderGraph->getFrameInFlight());
