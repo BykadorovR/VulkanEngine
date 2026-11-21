@@ -30,7 +30,7 @@ Line::Line(const RenderGraph::CommandBuffer* commandBufferTransfer,
     _cameraBuffer[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *engineState->getMemoryAllocator());
+        *engineState->getMemoryAllocator(), *engineState->getDevice());
 
     _descriptorSetCamera[i]->add({_cameraBuffer[i].get()});
     _descriptorSetCamera[i]->initialize(*commandBufferTransfer);
@@ -81,8 +81,7 @@ void Line::draw(const RenderGraph::CommandBuffer* commandBuffer) {
                       .view = _gameState->getCameraManager()->getCurrentCamera()->getView(),
                       .projection = _gameState->getCameraManager()->getCurrentCamera()->getProjection()};
 
-  std::memcpy(static_cast<std::byte*>(_cameraBuffer[currentFrame]->getAllocationInfo().pMappedData), &cameraUBO,
-              static_cast<std::size_t>(_cameraBuffer[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_cameraBuffer[currentFrame], std::as_bytes(std::span(&cameraUBO, 1)));
 
   VkBuffer vertexBuffers[] = {_mesh->getVertexBuffer()->getBuffer()->getBuffer()};
   VkDeviceSize offsets[] = {0};
@@ -92,7 +91,7 @@ void Line::draw(const RenderGraph::CommandBuffer* commandBuffer) {
                        VK_INDEX_TYPE_UINT32);
 
   _descriptorSetCamera[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->getPipelineLayout(),
-                                           *commandBuffer);
+                                           *commandBuffer, 0);
 
   vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh->getIndexData().size()), 1, 0, 0, 0);
 }

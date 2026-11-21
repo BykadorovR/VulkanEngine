@@ -60,11 +60,13 @@ class ImageManager {
     auto imageDataBuffer = std::make_shared<ImageDataBuffer>(
         std::tuple{width, height}, channels, static_cast<int>(imagesCPU.size()), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
     for (int i = 0; i < imagesCPU.size(); i++) {
       auto pixels = imagesCPU[i]->getData();
       VkDeviceSize imageSize = width * height * channels;
-      imageDataBuffer->setData(pixels.get(), imageSize * sizeof(T), imageSize * sizeof(T) * i);
+      _engineState->getResourceUploader()->upload(
+          *imageDataBuffer->buffer, std::as_bytes(std::span(pixels.get(), static_cast<std::size_t>(imageSize))),
+          imageSize * sizeof(T) * i);
     }
 
     return imageDataBuffer;

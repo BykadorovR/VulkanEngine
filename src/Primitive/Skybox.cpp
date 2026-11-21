@@ -43,7 +43,7 @@ Skybox::Skybox(std::shared_ptr<GameState> gameState, std::shared_ptr<EngineState
     _uniformBuffer[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *engineState->getMemoryAllocator());
+        *engineState->getMemoryAllocator(), *engineState->getDevice());
 
   // setup color
   {
@@ -146,8 +146,7 @@ void Skybox::draw(const RenderGraph::CommandBuffer* commandBuffer) {
   BufferMVP cameraUBO{.model = _model,
                       .view = glm::mat4(glm::mat3(_gameState->getCameraManager()->getCurrentCamera()->getView())),
                       .projection = _gameState->getCameraManager()->getCurrentCamera()->getProjection()};
-  std::memcpy(static_cast<std::byte*>(_uniformBuffer[currentFrame]->getAllocationInfo().pMappedData), &cameraUBO,
-              static_cast<std::size_t>(_uniformBuffer[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_uniformBuffer[currentFrame], std::as_bytes(std::span(&cameraUBO, 1)));
 
   VkBuffer vertexBuffers[] = {_mesh->getVertexBuffer()->getBuffer()->getBuffer()};
   VkDeviceSize offsets[] = {0};
@@ -156,7 +155,8 @@ void Skybox::draw(const RenderGraph::CommandBuffer* commandBuffer) {
   vkCmdBindIndexBuffer(commandBuffer->getCommandBuffer(), _mesh->getIndexBuffer()->getBuffer()->getBuffer(), 0,
                        VK_INDEX_TYPE_UINT32);
 
-  _descriptorSet[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->getPipelineLayout(), *commandBuffer);
+  _descriptorSet[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->getPipelineLayout(), *commandBuffer,
+                                     0);
 
   vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh->getIndexData().size()), 1, 0, 0, 0);
 }

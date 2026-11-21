@@ -1,4 +1,5 @@
 #pragma once
+#include <vk_mem_alloc.h>
 #include <glm/ext.hpp>
 #include <glm/glm.hpp>
 #include <memory>
@@ -13,8 +14,10 @@ import Allocator;
 import DescriptorBuffer;
 import Device;
 import Instance;
+import MipmapGenerator;
 import ResourceUploader;
 import Surface;
+import Sync;
 import Window;
 
 class EngineState {
@@ -29,7 +32,8 @@ class EngineState {
   std::shared_ptr<Filesystem> _filesystem;
   std::shared_ptr<RenderGraph::MemoryAllocator> _memoryAllocator;
   std::shared_ptr<RenderGraph::ResourceUploader> _resourceUploader;
-  std::vector<RenderGraph::UploadTicket> _uploadTickets;
+  std::unique_ptr<RenderGraph::MipmapGenerator> _mipmapGenerator;
+  std::vector<RenderGraph::GpuTicket> _uploadTickets;
   std::shared_ptr<Logger> _logger;
   std::shared_ptr<DebugUtils> _debugUtils;
   int _frameInFlight = 0;
@@ -55,7 +59,8 @@ class EngineState {
   std::shared_ptr<RenderGraph::DescriptorPool> getDescriptorPool();
   std::shared_ptr<Filesystem> getFilesystem();
   std::shared_ptr<RenderGraph::ResourceUploader> getResourceUploader();
-  std::vector<RenderGraph::UploadTicket>& getUploadTickets();
+  RenderGraph::MipmapGenerator& getMipmapGenerator();
+  std::vector<RenderGraph::GpuTicket>& getUploadTickets();
   std::shared_ptr<Logger> getLogger();
   std::shared_ptr<DebugUtils> getDebugUtils();
   void setFrameInFlight(int frameInFlight);

@@ -70,7 +70,7 @@ IBL::IBL(const RenderGraph::CommandBuffer* commandBufferTransfer,
       _cameraBuffer[i] = std::make_shared<RenderGraph::Buffer>(
           sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-          *engineState->getMemoryAllocator());
+          *engineState->getMemoryAllocator(), *engineState->getDevice());
 
       _descriptorSetBRDF[i]->add({_cameraBuffer[i].get()});
       _descriptorSetBRDF[i]->initialize(*commandBufferTransfer);
@@ -107,7 +107,7 @@ IBL::IBL(const RenderGraph::CommandBuffer* commandBufferTransfer,
       _cameraBufferCubemap[i][f] = std::make_shared<RenderGraph::Buffer>(
           sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-          *engineState->getMemoryAllocator());
+          *engineState->getMemoryAllocator(), *engineState->getDevice());
     }
   }
 
@@ -175,22 +175,29 @@ IBL::IBL(const RenderGraph::CommandBuffer* commandBufferTransfer,
 
   _cubemapDiffuse = std::make_shared<Cubemap>(_engineState->getSettings()->getDiffuseIBLResolution(),
                                               _engineState->getSettings()->getGraphicColorFormat(), 1,
-                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT,
+                                              VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT,
                                               VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                               VK_FILTER_LINEAR, commandBufferTransfer, engineState);
   _cubemapSpecular = std::make_shared<Cubemap>(
       _engineState->getSettings()->getSpecularIBLResolution(), _engineState->getSettings()->getGraphicColorFormat(),
-      _engineState->getSettings()->getSpecularMipMap(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_FILTER_LINEAR,
-      commandBufferTransfer, engineState);
+      _engineState->getSettings()->getSpecularMipMap(), VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT,
+      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_FILTER_LINEAR, commandBufferTransfer,
+      engineState);
   const auto [brdfWidth, brdfHeight] = _engineState->getSettings()->getShadowMapResolution();
-  auto brdfImage = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator());
+  auto brdfImage = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator(), *engineState->getDevice());
   brdfImage->createImage(_engineState->getSettings()->getGraphicColorFormat(), {brdfWidth, brdfHeight}, 1, 1,
                          VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-  brdfImage->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                          VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-                          VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                          VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *commandBufferTransfer);
+  {
+    RenderGraph::Barrier barrier;
+    barrier.addImage(brdfImage->getImage(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_IMAGE_LAYOUT_GENERAL,
+                     {brdfImage->getAspectMask(), 0, static_cast<uint32_t>(brdfImage->getMipMapNumber()), 0,
+                      static_cast<uint32_t>(brdfImage->getLayerNumber())});
+    barrier.execute(commandBufferTransfer->getCommandBuffer());
+    brdfImage->setImageLayout(VK_IMAGE_LAYOUT_GENERAL);
+  }
   auto brdfImageView = std::make_shared<RenderGraph::ImageView>(std::move(brdfImage), *engineState->getDevice());
   brdfImageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);
   auto brdfSampler = std::make_shared<RenderGraph::Sampler>(*engineState->getDevice());
@@ -245,8 +252,8 @@ void IBL::_draw(int face,
   auto currentFrame = _engineState->getFrameInFlight();
   BufferMVP cameraUBO{.model = _model, .view = camera->getView(), .projection = camera->getProjection()};
 
-  std::memcpy(static_cast<std::byte*>(_cameraBufferCubemap[currentFrame][face]->getAllocationInfo().pMappedData),
-              &cameraUBO, static_cast<std::size_t>(_cameraBufferCubemap[currentFrame][face]->getSize()));
+  _engineState->getResourceUploader()->upload(*_cameraBufferCubemap[currentFrame][face],
+                                              std::as_bytes(std::span(&cameraUBO, 1)));
 
   VkBuffer vertexBuffers[] = {_mesh3D->getVertexBuffer()->getBuffer()->getBuffer()};
   VkDeviceSize offsets[] = {0};
@@ -256,7 +263,7 @@ void IBL::_draw(int face,
                        VK_INDEX_TYPE_UINT32);
 
   _descriptorSetColor[currentFrame][face]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(),
-                                                *commandBuffer);
+                                                *commandBuffer, 0);
 
   vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh3D->getIndexData().size()), 1, 0, 0,
                    0);
@@ -268,11 +275,17 @@ void IBL::drawSpecular() {
   vkCmdBindPipeline(_commandBufferTransfer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _pipelineSpecular->getPipeline());
   auto& specularImage = _cubemapSpecular->getTexture()->getImageView().getImage();
-  if (specularImage.getImageLayout() != VK_IMAGE_LAYOUT_GENERAL)
-    specularImage.changeLayout(
-        specularImage.getImageLayout(), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *_commandBufferTransfer);
+  if (specularImage.getImageLayout() != VK_IMAGE_LAYOUT_GENERAL) {
+    RenderGraph::Barrier barrier;
+    barrier.addImage(specularImage.getImage(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, specularImage.getImageLayout(),
+                     VK_IMAGE_LAYOUT_GENERAL,
+                     {specularImage.getAspectMask(), 0, static_cast<uint32_t>(specularImage.getMipMapNumber()), 0,
+                      static_cast<uint32_t>(specularImage.getLayerNumber())});
+    barrier.execute(_commandBufferTransfer->getCommandBuffer());
+    specularImage.setImageLayout(VK_IMAGE_LAYOUT_GENERAL);
+  }
 
   /////////////////////////////////////////////////////////////////////////////////////////
   // render graphic
@@ -366,11 +379,17 @@ void IBL::drawDiffuse() {
   vkCmdBindPipeline(_commandBufferTransfer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _pipelineDiffuse->getPipeline());
   auto& diffuseImage = _cubemapDiffuse->getTexture()->getImageView().getImage();
-  if (diffuseImage.getImageLayout() != VK_IMAGE_LAYOUT_GENERAL)
-    diffuseImage.changeLayout(
-        diffuseImage.getImageLayout(), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *_commandBufferTransfer);
+  if (diffuseImage.getImageLayout() != VK_IMAGE_LAYOUT_GENERAL) {
+    RenderGraph::Barrier barrier;
+    barrier.addImage(diffuseImage.getImage(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, diffuseImage.getImageLayout(),
+                     VK_IMAGE_LAYOUT_GENERAL,
+                     {diffuseImage.getAspectMask(), 0, static_cast<uint32_t>(diffuseImage.getMipMapNumber()), 0,
+                      static_cast<uint32_t>(diffuseImage.getLayerNumber())});
+    barrier.execute(_commandBufferTransfer->getCommandBuffer());
+    diffuseImage.setImageLayout(VK_IMAGE_LAYOUT_GENERAL);
+  }
   /////////////////////////////////////////////////////////////////////////////////////////
   // render graphic
   /////////////////////////////////////////////////////////////////////////////////////////
@@ -459,11 +478,17 @@ void IBL::drawSpecularBRDF() {
   vkCmdSetScissor(_commandBufferTransfer->getCommandBuffer(), 0, 1, &scissor);
 
   auto& brdfImage = _textureSpecularBRDF->getImageView().getImage();
-  if (brdfImage.getImageLayout() != VK_IMAGE_LAYOUT_GENERAL)
-    brdfImage.changeLayout(brdfImage.getImageLayout(), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                           VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-                           VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                           VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *_commandBufferTransfer);
+  if (brdfImage.getImageLayout() != VK_IMAGE_LAYOUT_GENERAL) {
+    RenderGraph::Barrier barrier;
+    barrier.addImage(brdfImage.getImage(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, brdfImage.getImageLayout(),
+                     VK_IMAGE_LAYOUT_GENERAL,
+                     {brdfImage.getAspectMask(), 0, static_cast<uint32_t>(brdfImage.getMipMapNumber()), 0,
+                      static_cast<uint32_t>(brdfImage.getLayerNumber())});
+    barrier.execute(_commandBufferTransfer->getCommandBuffer());
+    brdfImage.setImageLayout(VK_IMAGE_LAYOUT_GENERAL);
+  }
   VkRenderingAttachmentInfo colorAttachment{.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
                                             .imageView = _textureSpecularBRDF->getImageView().getImageView(),
                                             .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
@@ -484,8 +509,7 @@ void IBL::drawSpecularBRDF() {
   BufferMVP cameraMVP{.model = model,
                       .view = _cameraSpecularBRDF->getView(),
                       .projection = _cameraSpecularBRDF->getProjection()};
-  std::memcpy(static_cast<std::byte*>(_cameraBuffer[currentFrame]->getAllocationInfo().pMappedData), &cameraMVP,
-              static_cast<std::size_t>(_cameraBuffer[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_cameraBuffer[currentFrame], std::as_bytes(std::span(&cameraMVP, 1)));
 
   VkBuffer vertexBuffers[] = {_mesh2D->getVertexBuffer()->getBuffer()->getBuffer()};
   VkDeviceSize offsets[] = {0};
@@ -498,7 +522,7 @@ void IBL::drawSpecularBRDF() {
                     _pipelineSpecularBRDF->getPipeline());
 
   _descriptorSetBRDF[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineSpecularBRDF->getPipelineLayout(),
-                                         *_commandBufferTransfer);
+                                         *_commandBufferTransfer, 0);
 
   vkCmdDrawIndexed(_commandBufferTransfer->getCommandBuffer(), static_cast<uint32_t>(_mesh2D->getIndexData().size()), 1,
                    0, 0, 0);

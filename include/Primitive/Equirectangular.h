@@ -21,7 +21,6 @@ class Equirectangular {
   std::shared_ptr<RenderGraph::ImageView> _imageView;
   std::shared_ptr<RenderGraph::Texture> _texture;
   std::shared_ptr<Cubemap> _cubemap;
-  std::shared_ptr<RenderGraph::Buffer> _stagingBuffer;
   const RenderGraph::CommandBuffer* _commandBufferTransfer;
   std::shared_ptr<RenderGraph::DescriptorSetLayout> _descriptorSetLayout;
   std::vector<std::vector<std::shared_ptr<RenderGraph::Buffer>>> _bufferCubemap;

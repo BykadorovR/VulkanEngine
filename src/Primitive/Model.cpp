@@ -268,7 +268,7 @@ Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
     _cameraUBOFull[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
   auto shaderColor = std::make_shared<RenderGraph::Shader>(*_engineState->getDevice());
   shaderColor->add(_engineState->getFilesystem()->readFile<char>(_engineState->getSettings()->getShadersPath() +
@@ -524,7 +524,7 @@ Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
       auto buffer = std::make_shared<RenderGraph::Buffer>(
           sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-          *_engineState->getMemoryAllocator());
+          *_engineState->getMemoryAllocator(), *_engineState->getDevice());
       _cameraUBODepth[i].push_back({buffer});
 
       _descriptorSetCameraDepth[i].push_back({nullptr});
@@ -535,7 +535,7 @@ Model3D::Model3D(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
         facesBuffer[f] = std::make_shared<RenderGraph::Buffer>(
             sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            *_engineState->getMemoryAllocator());
+            *_engineState->getMemoryAllocator(), *_engineState->getDevice());
       }
       _cameraUBODepth[i].push_back(facesBuffer);
       _descriptorSetCameraDepth[i].push_back(std::vector<std::shared_ptr<RenderGraph::DescriptorSet>>(6));
@@ -786,8 +786,7 @@ void Model3D::_drawNode(const RenderGraph::CommandBuffer* commandBuffer,
                         .view = view,
                         .projection = projection};
 
-    std::memcpy(static_cast<std::byte*>(cameraUBO->getAllocationInfo().pMappedData), &cameraMVP,
-                static_cast<std::size_t>(cameraUBO->getSize()));
+    _engineState->getResourceUploader()->upload(*cameraUBO, std::as_bytes(std::span(&cameraMVP, 1)));
 
     const auto skinIndex = std::max(0, node->skin);
 
@@ -810,29 +809,29 @@ void Model3D::_drawNode(const RenderGraph::CommandBuffer* commandBuffer,
         vkCmdBindPipeline(commandBuffer->getCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
                           currentPipeline->getPipeline());
         if (cameraDS != nullptr) {
-          cameraDS->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer);
+          cameraDS->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer, 0);
         } else if (_drawType == DrawType::NORMAL || _drawType == DrawType::TANGENT) {
           _descriptorSetNormalsMesh[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                        currentPipeline->getPipelineLayout(), *commandBuffer);
+                                                        currentPipeline->getPipelineLayout(), *commandBuffer, 0);
         } else {
           std::shared_ptr<RenderGraph::DescriptorSet> descriptor;
           if (_materialType == MaterialType::COLOR) descriptor = _descriptorSetColor[currentFrame][materialIndex];
           if (_materialType == MaterialType::PHONG) descriptor = _descriptorSetPhong[currentFrame][materialIndex];
           if (_materialType == MaterialType::PBR) descriptor = _descriptorSetPBR[currentFrame][materialIndex];
-          descriptor->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer);
+          descriptor->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer, 0);
           if (_materialType == MaterialType::PHONG) {
             _gameState->getLightManager()->getDSGlobalModelPhong()->bind(
-                VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer);
+                VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer, 0);
           } else if (_materialType == MaterialType::PBR) {
             _gameState->getLightManager()->getDSGlobalModelPBR()->bind(
-                VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer);
+                VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline->getPipelineLayout(), *commandBuffer, 0);
           }
         }
         const auto& descriptorLayouts = currentPipeline->getDescriptorSetLayout();
         if (std::find(descriptorLayouts.begin(), descriptorLayouts.end(), _descriptorSetLayoutJoints.get()) !=
             descriptorLayouts.end()) {
           _descriptorSetJoints[currentFrame][skinIndex]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                              currentPipeline->getPipelineLayout(), *commandBuffer);
+                                                              currentPipeline->getPipelineLayout(), *commandBuffer, 0);
         }
         vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), primitive.indexCount, 1, primitive.firstIndex, 0, 0);
       }

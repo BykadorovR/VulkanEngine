@@ -264,7 +264,7 @@ void TerrainCPU::_loadTerrain() {
     _cameraBuffer[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
   // layout for Color
   {
@@ -359,8 +359,7 @@ void TerrainCPU::draw(const RenderGraph::CommandBuffer* commandBuffer) {
                         .view = _gameState->getCameraManager()->getCurrentCamera()->getView(),
                         .projection = _gameState->getCameraManager()->getCurrentCamera()->getProjection()};
 
-    std::memcpy(static_cast<std::byte*>(_cameraBuffer[currentFrame]->getAllocationInfo().pMappedData), &cameraUBO,
-                static_cast<std::size_t>(_cameraBuffer[currentFrame]->getSize()));
+    _engineState->getResourceUploader()->upload(*_cameraBuffer[currentFrame], std::as_bytes(std::span(&cameraUBO, 1)));
 
     VkBuffer vertexBuffers[] = {_mesh[currentFrame]->getVertexBuffer()->getBuffer()->getBuffer()};
     VkDeviceSize offsets[] = {0};
@@ -371,7 +370,7 @@ void TerrainCPU::draw(const RenderGraph::CommandBuffer* commandBuffer) {
     }
 
     _descriptorSetColor[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(),
-                                            *commandBuffer);
+                                            *commandBuffer, 0);
 
     if (_hasIndexes) {
       for (int strip = 0; strip < _numStrips; ++strip) {
@@ -449,7 +448,9 @@ void TerrainDebug::_changeHeightmap(glm::ivec2 position, int value) {
   data[index + 2] = heightValue;
   data[index + 3] = heightValue;
   _heightMapCPU->setData(data);
-  _heightMapGPU->setData(_heightMapCPU->getData().get());
+  _engineState->getResourceUploader()->upload(
+      *_heightMapGPU->buffer, std::as_bytes(std::span(_heightMapCPU->getData().get(),
+                                                      static_cast<std::size_t>(_heightMapGPU->buffer->getSize()))));
 }
 
 void TerrainDebug::_calculateMesh(int index) {
@@ -503,7 +504,9 @@ void TerrainDebug::_loadHeightmap(std::string path) {
   auto assetsPath = _engineState->getSettings()->getAssetsPath();
   path = assetsPath + path;
   _heightMapCPU = _gameState->getResourceManager()->getImageManager().loadCPU<uint8_t>(path + ".png");
-  _heightMapGPU->setData(_heightMapCPU->getData().get());
+  _engineState->getResourceUploader()->upload(
+      *_heightMapGPU->buffer, std::as_bytes(std::span(_heightMapCPU->getData().get(),
+                                                      static_cast<std::size_t>(_heightMapGPU->buffer->getSize()))));
   // need to recreate TerrainPhysics because heightmapCPU was updated
   _terrainPhysics->reset(_heightMapCPU);
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) _changedHeightmap[i] = true;

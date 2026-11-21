@@ -26,13 +26,14 @@ struct ImageDataBuffer {
                   int number,
                   VkBufferUsageFlags usage,
                   VmaAllocationCreateFlags allocationFlags,
-                  const RenderGraph::MemoryAllocator& memoryAllocator)
+                  const RenderGraph::MemoryAllocator& memoryAllocator,
+                  const RenderGraph::Device& device)
       : resolution(resolution),
         channels(channels),
         number(number) {
     const auto [width, height] = resolution;
     buffer = std::make_shared<RenderGraph::Buffer>(static_cast<VkDeviceSize>(width * height * channels * number), usage,
-                                                   allocationFlags, memoryAllocator);
+                                                   allocationFlags, memoryAllocator, device);
   }
 
   std::tuple<int, int> getResolution() const noexcept { return resolution; }
@@ -82,10 +83,9 @@ class VertexBufferDynamic : public VertexBuffer<T> {
       this->_buffer = std::make_shared<RenderGraph::Buffer>(
           bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | this->_type,
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-          *this->_engineState->getMemoryAllocator());
+          *this->_engineState->getMemoryAllocator(), *this->_engineState->getDevice());
     }
-    std::memcpy(this->_buffer->getAllocationInfo().pMappedData, this->_vertices.data(),
-                static_cast<std::size_t>(bufferSize));
+    this->_engineState->getResourceUploader()->upload(*this->_buffer, std::as_bytes(std::span(this->_vertices)));
   }
 };
 
@@ -100,11 +100,13 @@ class VertexBufferStatic : public VertexBuffer<T> {
     const VkDeviceSize bufferSize = sizeof(this->_vertices[0]) * this->_vertices.size();
     if (this->_buffer == nullptr || bufferSize != this->_buffer->getSize()) {
       this->_buffer = std::make_shared<RenderGraph::Buffer>(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | this->_type,
-                                                            0, *this->_engineState->getMemoryAllocator());
+                                                            0, *this->_engineState->getMemoryAllocator(),
+                                                            *this->_engineState->getDevice());
     }
 
     const auto bytes = std::as_bytes(std::span(this->_vertices));
     this->_engineState->getResourceUploader()->upload(*this->_buffer, bytes);
-    this->_engineState->getUploadTickets().push_back(this->_engineState->getResourceUploader()->submit());
+    if (auto ticket = this->_engineState->getResourceUploader()->submit())
+      this->_engineState->getUploadTickets().push_back(*ticket);
   }
 };

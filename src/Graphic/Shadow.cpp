@@ -7,13 +7,20 @@ DirectionalShadowResources::DirectionalShadowResources(const RenderGraph::Comman
   // create shadow map texture
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
     const auto [width, height] = engineState->getSettings()->getShadowMapResolution();
-    auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator());
+    auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator(), *_engineState->getDevice());
     image->createImage(_engineState->getSettings()->getShadowMapFormat(), {width, height}, 1, 1,
                        VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    image->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                        VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-                        VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                        VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *commandBufferTransfer);
+    {
+      RenderGraph::Barrier barrier;
+      barrier.addImage(image->getImage(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                       VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                       VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                       VK_IMAGE_LAYOUT_GENERAL,
+                       {image->getAspectMask(), 0, static_cast<uint32_t>(image->getMipMapNumber()), 0,
+                        static_cast<uint32_t>(image->getLayerNumber())});
+      barrier.execute(commandBufferTransfer->getCommandBuffer());
+      image->setImageLayout(VK_IMAGE_LAYOUT_GENERAL);
+    }
     auto imageView = std::make_shared<RenderGraph::ImageView>(std::move(image), *_engineState->getDevice());
     imageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);
     // android doesn't support linear + d32 texture
@@ -127,35 +134,6 @@ void PointShadowRenderer::draw(int currentFrame, const RenderGraph::CommandBuffe
   logger->end(&commandBuffer);
 }
 
-void PointShadowRenderer::update(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) {
-  const auto& image =
-      _pointShadowResources->getShadowMapCubemap().at(currentFrame)->getTexture()->getImageView().getImage();
-  const VkImageMemoryBarrier2 barrier{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-      .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-      .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-      .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-      .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-      .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-      .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .image = image.getImage(),
-      .subresourceRange =
-          {
-              .aspectMask = image.getAspectMask(),
-              .baseMipLevel = 0,
-              .levelCount = static_cast<uint32_t>(image.getMipMapNumber()),
-              .baseArrayLayer = static_cast<uint32_t>(_face),
-              .layerCount = 1,
-          },
-  };
-  const VkDependencyInfo dependencyInfo{
-      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-      .imageMemoryBarrierCount = 1,
-      .pImageMemoryBarriers = &barrier,
-  };
-  vkCmdPipelineBarrier2(commandBuffer.getCommandBuffer(), &dependencyInfo);
-}
+void PointShadowRenderer::update(int, const RenderGraph::CommandBuffer&) {}
 
 void PointShadowRenderer::reset(const std::vector<std::shared_ptr<RenderGraph::ImageView>>&) {}
