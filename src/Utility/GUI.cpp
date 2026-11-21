@@ -68,8 +68,7 @@ void GUI::initialize(const RenderGraph::CommandBuffer* commandBufferTransfer) {
   const VkDeviceSize fontOffset = 0;
   _engineState->getResourceUploader()->upload(
       *_fontImage, std::as_bytes(std::span(fontData, static_cast<std::size_t>(uploadSize))), std::span(&fontOffset, 1));
-  if (auto ticket = _engineState->getResourceUploader()->submit())
-    _engineState->getUploadTickets().push_back(*ticket);
+  if (auto ticket = _engineState->getResourceUploader()->submit()) _engineState->getUploadTickets().push_back(*ticket);
 
   _imageView = std::make_shared<RenderGraph::ImageView>(std::move(_fontImage), *_engineState->getDevice());
   _imageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);

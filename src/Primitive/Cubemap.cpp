@@ -80,11 +80,11 @@ Cubemap::Cubemap(std::tuple<int, int> resolution,
   // VK_IMAGE_LAYOUT_GENERAL
   {
     RenderGraph::Barrier barrier;
-    barrier.addImage(
-        image->getImage(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, layout,
-        {image->getAspectMask(), 0, static_cast<uint32_t>(image->getMipMapNumber()), 0,
-         static_cast<uint32_t>(image->getLayerNumber())});
+    barrier.addImage(image->getImage(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                     layout,
+                     {image->getAspectMask(), 0, static_cast<uint32_t>(image->getMipMapNumber()), 0,
+                      static_cast<uint32_t>(image->getLayerNumber())});
     barrier.execute(commandBufferTransfer->getCommandBuffer());
     image->setImageLayout(layout);
   }

@@ -31,9 +31,8 @@ void ImageManager::updateTexture(const RenderGraph::Texture& texture, const std:
   auto& image = texture.getImageView().getImage();
   const auto* imageBytes = static_cast<const std::byte*>(data->buffer->getAllocationInfo().pMappedData);
   const VkDeviceSize imageOffset = 0;
-  _engineState->getResourceUploader()->upload(image,
-                                              std::span(imageBytes, static_cast<std::size_t>(data->buffer->getSize())),
-                                              std::span(&imageOffset, 1));
+  _engineState->getResourceUploader()->upload(
+      image, std::span(imageBytes, static_cast<std::size_t>(data->buffer->getSize())), std::span(&imageOffset, 1));
   if (auto ticket = _engineState->getResourceUploader()->submit()) {
     if (image.getMipMapNumber() > 1) {
       const auto filter = _engineState->getDevice()->isFormatFeatureSupported(
@@ -321,8 +320,8 @@ std::shared_ptr<RenderGraph::Texture> LoaderGLTF::_loadTexture(
                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
       const VkDeviceSize imageOffset = 0;
-      _engineState->getResourceUploader()->upload(
-          *image, std::as_bytes(std::span(buffer, bufferSize)), std::span(&imageOffset, 1));
+      _engineState->getResourceUploader()->upload(*image, std::as_bytes(std::span(buffer, bufferSize)),
+                                                  std::span(&imageOffset, 1));
       if (auto ticket = _engineState->getResourceUploader()->submit())
         _engineState->getUploadTickets().push_back(*ticket);
 

@@ -24,8 +24,7 @@ Equirectangular::Equirectangular(std::shared_ptr<ImageCPU<float>> imageCPU,
   const VkDeviceSize imageOffset = 0;
   engineState->getResourceUploader()->upload(
       *_image, std::as_bytes(std::span(pixels, static_cast<std::size_t>(imageSize))), std::span(&imageOffset, 1));
-  if (auto ticket = _engineState->getResourceUploader()->submit())
-    _engineState->getUploadTickets().push_back(*ticket);
+  if (auto ticket = _engineState->getResourceUploader()->submit()) _engineState->getUploadTickets().push_back(*ticket);
 
   _imageView = std::make_shared<RenderGraph::ImageView>(std::move(_image), *engineState->getDevice());
   _imageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);

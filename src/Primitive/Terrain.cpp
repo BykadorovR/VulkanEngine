@@ -449,8 +449,8 @@ void TerrainDebug::_changeHeightmap(glm::ivec2 position, int value) {
   data[index + 3] = heightValue;
   _heightMapCPU->setData(data);
   _engineState->getResourceUploader()->upload(
-      *_heightMapGPU->buffer,
-      std::as_bytes(std::span(_heightMapCPU->getData().get(), static_cast<std::size_t>(_heightMapGPU->buffer->getSize()))));
+      *_heightMapGPU->buffer, std::as_bytes(std::span(_heightMapCPU->getData().get(),
+                                                      static_cast<std::size_t>(_heightMapGPU->buffer->getSize()))));
 }
 
 void TerrainDebug::_calculateMesh(int index) {
@@ -505,8 +505,8 @@ void TerrainDebug::_loadHeightmap(std::string path) {
   path = assetsPath + path;
   _heightMapCPU = _gameState->getResourceManager()->getImageManager().loadCPU<uint8_t>(path + ".png");
   _engineState->getResourceUploader()->upload(
-      *_heightMapGPU->buffer,
-      std::as_bytes(std::span(_heightMapCPU->getData().get(), static_cast<std::size_t>(_heightMapGPU->buffer->getSize()))));
+      *_heightMapGPU->buffer, std::as_bytes(std::span(_heightMapCPU->getData().get(),
+                                                      static_cast<std::size_t>(_heightMapGPU->buffer->getSize()))));
   // need to recreate TerrainPhysics because heightmapCPU was updated
   _terrainPhysics->reset(_heightMapCPU);
   for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) _changedHeightmap[i] = true;
