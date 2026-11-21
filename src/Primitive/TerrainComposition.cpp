@@ -109,7 +109,7 @@ TerrainCompositionDebug::TerrainCompositionDebug(std::shared_ptr<ImageCPU<uint8_
     _cameraBuffer[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *engineState->getMemoryAllocator());
+        *engineState->getMemoryAllocator(), *engineState->getDevice());
 
   // layout for Normal
   {
@@ -400,7 +400,7 @@ void TerrainCompositionDebug::_reallocatePatchDescription(int currentFrame) {
   _patchDescriptionSSBO[currentFrame] = std::make_shared<RenderGraph::Buffer>(
       _patchNumber.first * _patchNumber.second * sizeof(PatchDescription), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-      *_engineState->getMemoryAllocator());
+      *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 }
 
 void TerrainCompositionDebug::_updatePatchDescription(int currentFrame) {
@@ -409,8 +409,8 @@ void TerrainCompositionDebug::_updatePatchDescription(int currentFrame) {
     patchData[i] = PatchDescription({.rotation = 90 * _patchRotationsIndex[i], .textureID = _patchTextures[i]});
   }
   // fill only number of lights because it's stub
-  std::memcpy(static_cast<std::byte*>(_patchDescriptionSSBO[currentFrame]->getAllocationInfo().pMappedData),
-              patchData.data(), static_cast<std::size_t>(patchData.size() * sizeof(PatchDescription)));
+  _engineState->getResourceUploader()->upload(*_patchDescriptionSSBO[currentFrame],
+                                              std::as_bytes(std::span(patchData)));
 }
 
 void TerrainCompositionDebug::draw(const RenderGraph::CommandBuffer* commandBuffer) {
@@ -490,8 +490,7 @@ void TerrainCompositionDebug::draw(const RenderGraph::CommandBuffer* commandBuff
                         .view = _gameState->getCameraManager()->getCurrentCamera()->getView(),
                         .projection = _gameState->getCameraManager()->getCurrentCamera()->getProjection()};
 
-    std::memcpy(static_cast<std::byte*>(_cameraBuffer[currentFrame]->getAllocationInfo().pMappedData), &cameraUBO,
-                static_cast<std::size_t>(_cameraBuffer[currentFrame]->getSize()));
+    _engineState->getResourceUploader()->upload(*_cameraBuffer[currentFrame], std::as_bytes(std::span(&cameraUBO, 1)));
 
     VkBuffer vertexBuffers[] = {_mesh[currentFrame]->getVertexBuffer()->getBuffer()->getBuffer()};
     VkDeviceSize offsets[] = {0};
@@ -500,7 +499,7 @@ void TerrainCompositionDebug::draw(const RenderGraph::CommandBuffer* commandBuff
     auto descriptor = _descriptorSetColor[currentFrame];
     if (_drawType == DrawType::NORMAL || _drawType == DrawType::TANGENT)
       descriptor = _descriptorSetNormal[currentFrame];
-    descriptor->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), *commandBuffer);
+    descriptor->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), *commandBuffer, 0);
 
     vkCmdDraw(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh[currentFrame]->getVertexData().size()), 1,
               0, 0);
@@ -699,7 +698,7 @@ void TerrainComposition::initialize(const RenderGraph::CommandBuffer* commandBuf
     _cameraBuffer[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
   // layout for Shadows
   {
@@ -723,7 +722,7 @@ void TerrainComposition::initialize(const RenderGraph::CommandBuffer* commandBuf
         auto buffer = std::make_shared<RenderGraph::Buffer>(
             sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            *_engineState->getMemoryAllocator());
+            *_engineState->getMemoryAllocator(), *_engineState->getDevice());
         _cameraBufferDepth[i].push_back({buffer});
 
         auto cameraSet = std::make_shared<RenderGraph::DescriptorSet>(
@@ -742,7 +741,7 @@ void TerrainComposition::initialize(const RenderGraph::CommandBuffer* commandBuf
           facesBuffer[f] = std::make_shared<RenderGraph::Buffer>(
               sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
               VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-              *_engineState->getMemoryAllocator());
+              *_engineState->getMemoryAllocator(), *_engineState->getDevice());
           facesSet[f] = std::make_shared<RenderGraph::DescriptorSet>(
               std::vector<RenderGraph::DescriptorSetLayout*>{(descriptorSetLayout).get()},
               *_engineState->getDescriptorPool(), *_engineState->getDevice(), 0);
@@ -1053,7 +1052,7 @@ void TerrainComposition::_allocatePatchDescription(int currentFrame) {
   _patchDescriptionSSBO[currentFrame] = std::make_shared<RenderGraph::Buffer>(
       _patchNumber.first * _patchNumber.second * sizeof(PatchDescription), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-      *_engineState->getMemoryAllocator());
+      *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 }
 
 void TerrainComposition::_updatePatchDescription(int currentFrame) {
@@ -1062,8 +1061,8 @@ void TerrainComposition::_updatePatchDescription(int currentFrame) {
     patchData[i] = PatchDescription({.rotation = 90 * _patchRotationsIndex[i], .textureID = _patchTextures[i]});
   }
   // fill only number of lights because it's stub
-  std::memcpy(static_cast<std::byte*>(_patchDescriptionSSBO[currentFrame]->getAllocationInfo().pMappedData),
-              patchData.data(), static_cast<std::size_t>(patchData.size() * sizeof(PatchDescription)));
+  _engineState->getResourceUploader()->upload(*_patchDescriptionSSBO[currentFrame],
+                                              std::as_bytes(std::span(patchData)));
 }
 
 void TerrainComposition::_updateColorDescriptor(const RenderGraph::CommandBuffer& commandBuffer) {
@@ -1212,8 +1211,7 @@ void TerrainComposition::draw(const RenderGraph::CommandBuffer* commandBuffer) {
                         .view = _gameState->getCameraManager()->getCurrentCamera()->getView(),
                         .projection = _gameState->getCameraManager()->getCurrentCamera()->getProjection()};
 
-    std::memcpy(static_cast<std::byte*>(_cameraBuffer[currentFrame]->getAllocationInfo().pMappedData), &cameraUBO,
-                static_cast<std::size_t>(_cameraBuffer[currentFrame]->getSize()));
+    _engineState->getResourceUploader()->upload(*_cameraBuffer[currentFrame], std::as_bytes(std::span(&cameraUBO, 1)));
 
     VkBuffer vertexBuffers[] = {_mesh->getVertexBuffer()->getBuffer()->getBuffer()};
     VkDeviceSize offsets[] = {0};
@@ -1222,13 +1220,13 @@ void TerrainComposition::draw(const RenderGraph::CommandBuffer* commandBuffer) {
     auto descriptor = _descriptorSetColor[currentFrame];
     if (_materialType == MaterialType::PHONG) descriptor = _descriptorSetPhong[currentFrame];
     if (_materialType == MaterialType::PBR) descriptor = _descriptorSetPBR[currentFrame];
-    descriptor->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), *commandBuffer);
+    descriptor->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), *commandBuffer, 0);
     if (_materialType == MaterialType::PBR) {
       _gameState->getLightManager()->getDSGlobalTerrainPBR()->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                                   pipeline->getPipelineLayout(), *commandBuffer);
+                                                                   pipeline->getPipelineLayout(), *commandBuffer, 0);
     } else {
       _gameState->getLightManager()->getDSGlobalTerrainPhong()->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                                     pipeline->getPipelineLayout(), *commandBuffer);
+                                                                     pipeline->getPipelineLayout(), *commandBuffer, 0);
     }
 
     vkCmdDraw(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh->getVertexData().size()), 1, 0, 0);
@@ -1333,16 +1331,15 @@ void TerrainComposition::drawShadow(LightType lightType,
   // same buffer to both tessellation shaders because we're not going to change camera between these 2 stages
   BufferMVP cameraUBO{.model = getModel(), .view = view, .projection = projection};
 
-  std::memcpy(
-      static_cast<std::byte*>(_cameraBufferDepth[currentFrame][lightIndexTotal][face]->getAllocationInfo().pMappedData),
-      &cameraUBO, static_cast<std::size_t>(_cameraBufferDepth[currentFrame][lightIndexTotal][face]->getSize()));
+  _engineState->getResourceUploader()->upload(*_cameraBufferDepth[currentFrame][lightIndexTotal][face],
+                                              std::as_bytes(std::span(&cameraUBO, 1)));
 
   VkBuffer vertexBuffers[] = {_mesh->getVertexBuffer()->getBuffer()->getBuffer()};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(commandBuffer->getCommandBuffer(), 0, 1, vertexBuffers, offsets);
 
-  _descriptorSetCameraDepth[currentFrame][lightIndexTotal][face]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                                       pipeline->getPipelineLayout(), *commandBuffer);
+  _descriptorSetCameraDepth[currentFrame][lightIndexTotal][face]->bind(
+      VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), *commandBuffer, 0);
 
   vkCmdDraw(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh->getVertexData().size()), 1, 0, 0);
 }

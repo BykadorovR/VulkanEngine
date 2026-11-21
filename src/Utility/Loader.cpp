@@ -14,7 +14,7 @@ std::shared_ptr<RenderGraph::Texture> ImageManager::createTexture(std::shared_pt
                                                                   int mipMapLevels,
                                                                   VkFilter filter) {
   const auto [width, height] = data->getResolution();
-  auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator());
+  auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator(), *_engineState->getDevice());
   image->createImage(format, {width, height}, mipMapLevels, 1, VK_IMAGE_ASPECT_COLOR_BIT,
                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 
@@ -28,12 +28,25 @@ std::shared_ptr<RenderGraph::Texture> ImageManager::createTexture(std::shared_pt
 }
 
 void ImageManager::updateTexture(const RenderGraph::Texture& texture, const std::shared_ptr<ImageDataBuffer>& data) {
+  auto& image = texture.getImageView().getImage();
   const auto* imageBytes = static_cast<const std::byte*>(data->buffer->getAllocationInfo().pMappedData);
   const VkDeviceSize imageOffset = 0;
-  _engineState->getResourceUploader()->upload(texture.getImageView().getImage(),
+  _engineState->getResourceUploader()->upload(image,
                                               std::span(imageBytes, static_cast<std::size_t>(data->buffer->getSize())),
                                               std::span(&imageOffset, 1));
-  _engineState->getUploadTickets().push_back(_engineState->getResourceUploader()->submit());
+  if (auto ticket = _engineState->getResourceUploader()->submit()) {
+    if (image.getMipMapNumber() > 1) {
+      const auto filter = _engineState->getDevice()->isFormatFeatureSupported(
+                              image.getFormat(), VK_IMAGE_TILING_OPTIMAL,
+                              VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)
+                              ? VK_FILTER_LINEAR
+                              : VK_FILTER_NEAREST;
+      auto& mipmapGenerator = _engineState->getMipmapGenerator();
+      mipmapGenerator.generate(image, filter);
+      ticket = mipmapGenerator.submit(std::span(&*ticket, 1));
+    }
+    _engineState->getUploadTickets().push_back(*ticket);
+  }
 }
 
 ImageManager::ImageManager(std::shared_ptr<EngineState> engineState) { _engineState = engineState; }
@@ -288,6 +301,7 @@ std::shared_ptr<RenderGraph::Texture> LoaderGLTF::_loadTexture(
         const auto pixelCount = static_cast<std::size_t>(glTFImage.width) * static_cast<std::size_t>(glTFImage.height);
         convertedBuffer.resize(pixelCount * 4);
         buffer = convertedBuffer.data();
+        bufferSize = convertedBuffer.size();
         unsigned char* rgba = convertedBuffer.data();
         const unsigned char* rgb = glTFImage.image.data();
         for (std::size_t i = 0; i < pixelCount; ++i) {
@@ -300,26 +314,17 @@ std::shared_ptr<RenderGraph::Texture> LoaderGLTF::_loadTexture(
         bufferSize = glTFImage.image.size();
       }
 
-      // copy buffer to RenderGraph::Texture
-      auto stagingBuffer = std::make_shared<RenderGraph::Buffer>(
-          bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-          *_engineState->getMemoryAllocator());
-
-      std::memcpy(static_cast<std::byte*>(stagingBuffer->getAllocationInfo().pMappedData), buffer,
-                  static_cast<std::size_t>(stagingBuffer->getSize()));
-
       // for some textures SRGB is used but for others linear format
-      auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator());
+      auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator(),
+                                                        *_engineState->getDevice());
       image->createImage(format, {glTFImage.width, glTFImage.height}, 1, 1, VK_IMAGE_ASPECT_COLOR_BIT,
                          VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
       const VkDeviceSize imageOffset = 0;
-      const auto* imageBytes = static_cast<const std::byte*>(stagingBuffer->getAllocationInfo().pMappedData);
       _engineState->getResourceUploader()->upload(
-          *image, std::span(imageBytes, static_cast<std::size_t>(stagingBuffer->getSize())),
-          std::span(&imageOffset, 1));
-      _engineState->getUploadTickets().push_back(_engineState->getResourceUploader()->submit());
+          *image, std::as_bytes(std::span(buffer, bufferSize)), std::span(&imageOffset, 1));
+      if (auto ticket = _engineState->getResourceUploader()->submit())
+        _engineState->getUploadTickets().push_back(*ticket);
 
       auto imageView = std::make_shared<RenderGraph::ImageView>(std::move(image), *_engineState->getDevice());
       imageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);

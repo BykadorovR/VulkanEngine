@@ -62,22 +62,14 @@ void GUI::initialize(const RenderGraph::CommandBuffer* commandBufferTransfer) {
     }
   }
 
-  auto stagingBuffer = std::make_shared<RenderGraph::Buffer>(
-      uploadSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-      *_engineState->getMemoryAllocator());
-
-  std::memcpy(static_cast<std::byte*>(stagingBuffer->getAllocationInfo().pMappedData), fontData,
-              static_cast<std::size_t>(stagingBuffer->getSize()));
-
-  _fontImage = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator());
+  _fontImage = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator(), *_engineState->getDevice());
   _fontImage->createImage(_engineState->getSettings()->getLoadTextureColorFormat(), {texWidth, texHeight}, 1, 1,
                           VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
   const VkDeviceSize fontOffset = 0;
-  const auto* fontBytes = static_cast<const std::byte*>(stagingBuffer->getAllocationInfo().pMappedData);
   _engineState->getResourceUploader()->upload(
-      *_fontImage, std::span(fontBytes, static_cast<std::size_t>(stagingBuffer->getSize())), std::span(&fontOffset, 1));
-  _engineState->getUploadTickets().push_back(_engineState->getResourceUploader()->submit());
+      *_fontImage, std::as_bytes(std::span(fontData, static_cast<std::size_t>(uploadSize))), std::span(&fontOffset, 1));
+  if (auto ticket = _engineState->getResourceUploader()->submit())
+    _engineState->getUploadTickets().push_back(*ticket);
 
   _imageView = std::make_shared<RenderGraph::ImageView>(std::move(_fontImage), *_engineState->getDevice());
   _imageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);
@@ -103,7 +95,7 @@ void GUI::initialize(const RenderGraph::CommandBuffer* commandBufferTransfer) {
     _scaleTranslateBuffer[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(UniformDataGUI), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
     _descriptorSet[i]->add({_scaleTranslateBuffer[i].get()});
     _descriptorSet[i]->add({_fontTexture.get()});
@@ -240,7 +232,7 @@ void GUI::updateBuffers() {
     _vertexBuffer[current] = std::make_shared<RenderGraph::Buffer>(
         vertexBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
     _vertexCount[current] = imDrawData->TotalVtxCount;
   }
 
@@ -249,7 +241,7 @@ void GUI::updateBuffers() {
     _indexBuffer[current] = std::make_shared<RenderGraph::Buffer>(
         indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
     _indexCount[current] = imDrawData->TotalIdxCount;
   }
 
@@ -258,10 +250,14 @@ void GUI::updateBuffers() {
   int indexDst = 0;
   for (int n = 0; n < imDrawData->CmdListsCount; n++) {
     const ImDrawList* cmdList = imDrawData->CmdLists[n];
-    std::memcpy(static_cast<std::byte*>(_vertexBuffer[current]->getAllocationInfo().pMappedData) + (vertexDst),
-                cmdList->VtxBuffer.Data, static_cast<std::size_t>(cmdList->VtxBuffer.Size * sizeof(ImDrawVert)));
-    std::memcpy(static_cast<std::byte*>(_indexBuffer[current]->getAllocationInfo().pMappedData) + (indexDst),
-                cmdList->IdxBuffer.Data, static_cast<std::size_t>(cmdList->IdxBuffer.Size * sizeof(ImDrawIdx)));
+    _engineState->getResourceUploader()->upload(
+        *_vertexBuffer[current],
+        std::as_bytes(std::span(cmdList->VtxBuffer.Data, static_cast<std::size_t>(cmdList->VtxBuffer.Size))),
+        (vertexDst));
+    _engineState->getResourceUploader()->upload(
+        *_indexBuffer[current],
+        std::as_bytes(std::span(cmdList->IdxBuffer.Data, static_cast<std::size_t>(cmdList->IdxBuffer.Size))),
+        (indexDst));
     vertexDst += cmdList->VtxBuffer.Size * sizeof(ImDrawVert);
     indexDst += cmdList->IdxBuffer.Size * sizeof(ImDrawIdx);
   }
@@ -289,10 +285,10 @@ void GUI::draw(int, const RenderGraph::CommandBuffer& commandBuffer) {
   // UI scale and translate via push constants
   UniformDataGUI uniformData{.scale = glm::vec2(2.0f / io.DisplaySize.x, 2.0f / io.DisplaySize.y),
                              .translate = glm::vec2(-1.0f)};
-  std::memcpy(static_cast<std::byte*>(_scaleTranslateBuffer[current]->getAllocationInfo().pMappedData), &uniformData,
-              static_cast<std::size_t>(_scaleTranslateBuffer[current]->getSize()));
+  _engineState->getResourceUploader()->upload(*_scaleTranslateBuffer[current],
+                                              std::as_bytes(std::span(&uniformData, 1)));
 
-  _descriptorSet[current]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->getPipelineLayout(), commandBuffer);
+  _descriptorSet[current]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->getPipelineLayout(), commandBuffer, 0);
 
   // Render commands
   ImDrawData* imDrawData = ImGui::GetDrawData();

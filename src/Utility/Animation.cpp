@@ -18,7 +18,7 @@ Animation::Animation(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
           sizeof(glm::vec4) + _skins[i]->inverseBindMatrices.size() * sizeof(glm::mat4),
           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-          *_engineState->getMemoryAllocator());
+          *_engineState->getMemoryAllocator(), *_engineState->getDevice());
     }
   }
 
@@ -29,16 +29,15 @@ Animation::Animation(const std::vector<std::shared_ptr<NodeGLTF>>& nodes,
       bufferStubs.push_back(std::make_shared<RenderGraph::Buffer>(
           sizeof(glm::mat4) + sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-          *_engineState->getMemoryAllocator()));
+          *_engineState->getMemoryAllocator(), *_engineState->getDevice()));
     }
     _ssboJoints.push_back(bufferStubs);
     auto identityMat = glm::mat4(1.f);
     int jointNumber = 0;
     for (int i = 0; i < _engineState->getSettings()->getMaxFramesInFlight(); i++) {
-      std::memcpy(static_cast<std::byte*>(_ssboJoints[0][i]->getAllocationInfo().pMappedData), &jointNumber,
-                  static_cast<std::size_t>(sizeof(glm::vec4)));
-      std::memcpy(static_cast<std::byte*>(_ssboJoints[0][i]->getAllocationInfo().pMappedData) + (sizeof(glm::vec4)),
-                  &identityMat, static_cast<std::size_t>(sizeof(glm::mat4)));
+      _engineState->getResourceUploader()->upload(*_ssboJoints[0][i], std::as_bytes(std::span(&jointNumber, 1)));
+      _engineState->getResourceUploader()->upload(*_ssboJoints[0][i], std::as_bytes(std::span(&identityMat, 1)),
+                                                  (sizeof(glm::vec4)));
     }
   }
 }
@@ -58,11 +57,10 @@ void Animation::_updateJoints(int currentImage, std::shared_ptr<NodeGLTF> node) 
     }
     auto frameInFlight = currentImage % _engineState->getSettings()->getMaxFramesInFlight();
     const int jointNumber = static_cast<int>(_matricesJoint.size());
-    std::memcpy(static_cast<std::byte*>(_ssboJoints[node->skin][frameInFlight]->getAllocationInfo().pMappedData),
-                &jointNumber, static_cast<std::size_t>(sizeof(glm::vec4)));
-    std::memcpy(static_cast<std::byte*>(_ssboJoints[node->skin][frameInFlight]->getAllocationInfo().pMappedData) +
-                    (sizeof(glm::vec4)),
-                _matricesJoint.data(), static_cast<std::size_t>(_matricesJoint.size() * sizeof(glm::mat4)));
+    _engineState->getResourceUploader()->upload(*_ssboJoints[node->skin][frameInFlight],
+                                                std::as_bytes(std::span(&jointNumber, 1)));
+    _engineState->getResourceUploader()->upload(*_ssboJoints[node->skin][frameInFlight],
+                                                std::as_bytes(std::span(_matricesJoint)), (sizeof(glm::vec4)));
   }
 
   for (auto& child : node->children) {

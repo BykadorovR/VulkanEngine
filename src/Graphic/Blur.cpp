@@ -37,9 +37,8 @@ void BlurSeparate::_updateDescriptors(int currentFrame) {
   _blurWeightsSSBO[currentFrame] = std::make_shared<RenderGraph::Buffer>(
       _blurWeights.size() * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-      *_engineState->getMemoryAllocator());
-  std::memcpy(static_cast<std::byte*>(_blurWeightsSSBO[currentFrame]->getAllocationInfo().pMappedData),
-              _blurWeights.data(), static_cast<std::size_t>(_blurWeightsSSBO[currentFrame]->getSize()));
+      *_engineState->getMemoryAllocator(), *_engineState->getDevice());
+  _engineState->getResourceUploader()->upload(*_blurWeightsSSBO[currentFrame], std::as_bytes(std::span(_blurWeights)));
 }
 
 std::vector<std::shared_ptr<RenderGraph::Texture>> BlurSeparate::getTextureSrc() { return _textureSrc; }
@@ -48,59 +47,7 @@ std::vector<std::shared_ptr<RenderGraph::Texture>> BlurSeparate::getTextureDst()
 
 bool BlurSeparate::getHorizontal() { return _horizontal; }
 
-void BlurSeparate::update(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) {
-  if (_layer < 0) return;
-
-  const auto& sampledImage = _textureSrc.at(currentFrame)->getImageView().getImage();
-  const VkImageMemoryBarrier2 sampledBarrier{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-      .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-      .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-      .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-      .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-      .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-      .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .image = sampledImage.getImage(),
-      .subresourceRange =
-          {
-              .aspectMask = sampledImage.getAspectMask(),
-              .baseMipLevel = 0,
-              .levelCount = static_cast<uint32_t>(sampledImage.getMipMapNumber()),
-              .baseArrayLayer = static_cast<uint32_t>(_layer),
-              .layerCount = 1,
-          },
-  };
-  const auto& targetImage = _textureDst.at(currentFrame)->getImageView().getImage();
-  const VkImageMemoryBarrier2 targetBarrier{
-      .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-      .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-      .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-      .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-      .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-      .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-      .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-      .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-      .image = targetImage.getImage(),
-      .subresourceRange =
-          {
-              .aspectMask = targetImage.getAspectMask(),
-              .baseMipLevel = 0,
-              .levelCount = static_cast<uint32_t>(targetImage.getMipMapNumber()),
-              .baseArrayLayer = static_cast<uint32_t>(_layer),
-              .layerCount = 1,
-          },
-  };
-  const VkImageMemoryBarrier2 barriers[]{sampledBarrier, targetBarrier};
-  const VkDependencyInfo dependencyInfo{
-      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-      .imageMemoryBarrierCount = 2,
-      .pImageMemoryBarriers = barriers,
-  };
-  vkCmdPipelineBarrier2(commandBuffer.getCommandBuffer(), &dependencyInfo);
-}
+void BlurSeparate::update(int, const RenderGraph::CommandBuffer&) {}
 
 void BlurSeparate::reset(const std::vector<std::shared_ptr<RenderGraph::ImageView>>&) {}
 
@@ -159,7 +106,7 @@ void BlurComputeSeparate::draw(int currentFrame, const RenderGraph::CommandBuffe
   if (_descriptorSet[currentFrame] == nullptr) _initialize(currentFrame, commandBuffer);
 
   vkCmdBindPipeline(commandBuffer.getCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline->getPipeline());
-  _descriptorSet[currentFrame]->bind(VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline->getPipelineLayout(), commandBuffer);
+  _descriptorSet[currentFrame]->bind(VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline->getPipelineLayout(), commandBuffer, 0);
 
   const auto [width, height] = std::tuple{(_textureSrc[currentFrame]->getImageView().getImage()).getResolution().x,
                                           (_textureSrc[currentFrame]->getImageView().getImage()).getResolution().y};
@@ -283,7 +230,7 @@ void BlurGraphicSeparate::draw(int currentFrame, const RenderGraph::CommandBuffe
   vkCmdBindIndexBuffer(commandBuffer.getCommandBuffer(), _mesh->getIndexBuffer()->getBuffer()->getBuffer(), 0,
                        VK_INDEX_TYPE_UINT32);
 
-  _descriptorSet[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->getPipelineLayout(), commandBuffer);
+  _descriptorSet[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->getPipelineLayout(), commandBuffer, 0);
 
   vkCmdDrawIndexed(commandBuffer.getCommandBuffer(), static_cast<uint32_t>(_mesh->getIndexData().size()), 1, 0, 0, 0);
   logger->end(&commandBuffer);

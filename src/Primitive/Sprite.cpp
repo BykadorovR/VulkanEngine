@@ -95,7 +95,7 @@ Sprite::Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
     _cameraUBOFull[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
   // setup Normal
   {
@@ -219,7 +219,7 @@ Sprite::Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
       auto buffer = std::make_shared<RenderGraph::Buffer>(
           sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-          *_engineState->getMemoryAllocator());
+          *_engineState->getMemoryAllocator(), *_engineState->getDevice());
       _cameraUBODepth[i].push_back({buffer});
 
       auto cameraSet = std::make_shared<RenderGraph::DescriptorSet>(
@@ -237,7 +237,7 @@ Sprite::Sprite(const RenderGraph::CommandBuffer* commandBufferTransfer,
         facesBuffer[f] = std::make_shared<RenderGraph::Buffer>(
             sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-            *_engineState->getMemoryAllocator());
+            *_engineState->getMemoryAllocator(), *_engineState->getDevice());
         facesSet[f] = std::make_shared<RenderGraph::DescriptorSet>(
             std::vector<RenderGraph::DescriptorSetLayout*>{(_descriptorSetLayoutDepth).get()},
             *_engineState->getDescriptorPool(), *_engineState->getDevice(), 0);
@@ -561,8 +561,7 @@ void Sprite::draw(const RenderGraph::CommandBuffer* commandBuffer) {
     cameraMVP.projection = _gameState->getCameraManager()->getCurrentCamera()->getProjection();
   }
 
-  std::memcpy(static_cast<std::byte*>(_cameraUBOFull[currentFrame]->getAllocationInfo().pMappedData), &cameraMVP,
-              static_cast<std::size_t>(_cameraUBOFull[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_cameraUBOFull[currentFrame], std::as_bytes(std::span(&cameraMVP, 1)));
 
   VkBuffer vertexBuffers[] = {_mesh->getVertexBuffer()->getBuffer()->getBuffer()};
   VkDeviceSize offsets[] = {0};
@@ -575,20 +574,20 @@ void Sprite::draw(const RenderGraph::CommandBuffer* commandBuffer) {
 
   if (_drawType == DrawType::NORMAL || _drawType == DrawType::TANGENT) {
     _descriptorSetNormalsMesh[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(),
-                                                  *commandBuffer);
+                                                  *commandBuffer, 0);
   } else if (_materialType == MaterialType::COLOR) {
     _descriptorSetColor[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(),
-                                            *commandBuffer);
+                                            *commandBuffer, 0);
   } else if (_materialType == MaterialType::PHONG) {
     _descriptorSetPhong[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(),
-                                            *commandBuffer);
+                                            *commandBuffer, 0);
     _gameState->getLightManager()->getDSGlobalPhong()->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                            pipeline->getPipelineLayout(), *commandBuffer);
+                                                            pipeline->getPipelineLayout(), *commandBuffer, 0);
   } else if (_materialType == MaterialType::PBR) {
     _descriptorSetPBR[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(),
-                                          *commandBuffer);
+                                          *commandBuffer, 0);
     _gameState->getLightManager()->getDSGlobalPBR()->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                          pipeline->getPipelineLayout(), *commandBuffer);
+                                                          pipeline->getPipelineLayout(), *commandBuffer, 0);
   }
 
   vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh->getIndexData().size()), 1, 0, 0, 0);
@@ -677,10 +676,8 @@ void Sprite::drawShadow(LightType lightType,
   }
 
   BufferMVP cameraMVP{.model = getModel(), .view = view, .projection = projection};
-  std::memcpy(
-      static_cast<std::byte*>(_cameraUBODepth[currentFrame][lightIndexTotal][face]->getAllocationInfo().pMappedData) +
-          (0),
-      &cameraMVP, static_cast<std::size_t>(_cameraUBODepth[currentFrame][lightIndexTotal][face]->getSize()));
+  _engineState->getResourceUploader()->upload(*_cameraUBODepth[currentFrame][lightIndexTotal][face],
+                                              std::as_bytes(std::span(&cameraMVP, 1)));
 
   VkBuffer vertexBuffers[] = {_mesh->getVertexBuffer()->getBuffer()->getBuffer()};
   VkDeviceSize offsets[] = {0};
@@ -689,8 +686,8 @@ void Sprite::drawShadow(LightType lightType,
   vkCmdBindIndexBuffer(commandBuffer->getCommandBuffer(), _mesh->getIndexBuffer()->getBuffer()->getBuffer(), 0,
                        VK_INDEX_TYPE_UINT32);
 
-  _descriptorSetCameraDepth[currentFrame][lightIndexTotal][face]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                                       pipeline->getPipelineLayout(), *commandBuffer);
+  _descriptorSetCameraDepth[currentFrame][lightIndexTotal][face]->bind(
+      VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->getPipelineLayout(), *commandBuffer, 0);
 
   vkCmdDrawIndexed(commandBuffer->getCommandBuffer(), static_cast<uint32_t>(_mesh->getIndexData().size()), 1, 0, 0, 0);
 }

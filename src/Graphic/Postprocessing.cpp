@@ -110,7 +110,7 @@ void Postprocessing::draw(int, const RenderGraph::CommandBuffer& commandBuffer) 
   }
 
   _descriptorSets[currentFrame][swapchainIndex]->bind(VK_PIPELINE_BIND_POINT_COMPUTE,
-                                                      _computePipeline->getPipelineLayout(), commandBuffer);
+                                                      _computePipeline->getPipelineLayout(), commandBuffer, 0);
 
   const auto [width, height] = _engineState->getSettings()->getResolution();
   vkCmdDispatch(commandBuffer.getCommandBuffer(), std::max(1, static_cast<int>(std::ceil(width / 16.f))),

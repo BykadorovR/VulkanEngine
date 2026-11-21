@@ -15,26 +15,17 @@ Equirectangular::Equirectangular(std::shared_ptr<ImageCPU<float>> imageCPU,
   auto [texWidth, texHeight] = imageCPU->getResolution();
 
   int imageSize = texWidth * texHeight * STBI_rgb_alpha;
-  int bufferSize = imageSize * sizeof(float);
-  // fill buffer
-  _stagingBuffer = std::make_shared<RenderGraph::Buffer>(
-      bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-      *engineState->getMemoryAllocator());
-  std::memcpy(static_cast<std::byte*>(_stagingBuffer->getAllocationInfo().pMappedData), pixels,
-              static_cast<std::size_t>(_stagingBuffer->getSize()));
-
   // image
   auto [width, height] = engineState->getSettings()->getResolution();
   // HDR image is in VK_FORMAT_R32G32B32A32_SFLOAT
-  _image = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator());
+  _image = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator(), *engineState->getDevice());
   _image->createImage(VK_FORMAT_R32G32B32A32_SFLOAT, {texWidth, texHeight}, 1, 1, VK_IMAGE_ASPECT_COLOR_BIT,
                       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
   const VkDeviceSize imageOffset = 0;
-  const auto* imageBytes = static_cast<const std::byte*>(_stagingBuffer->getAllocationInfo().pMappedData);
   engineState->getResourceUploader()->upload(
-      *_image, std::span(imageBytes, static_cast<std::size_t>(_stagingBuffer->getSize())), std::span(&imageOffset, 1));
-  engineState->getUploadTickets().push_back(engineState->getResourceUploader()->submit());
+      *_image, std::as_bytes(std::span(pixels, static_cast<std::size_t>(imageSize))), std::span(&imageOffset, 1));
+  if (auto ticket = _engineState->getResourceUploader()->submit())
+    _engineState->getUploadTickets().push_back(*ticket);
 
   _imageView = std::make_shared<RenderGraph::ImageView>(std::move(_image), *engineState->getDevice());
   _imageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);
@@ -87,7 +78,7 @@ Equirectangular::Equirectangular(std::shared_ptr<ImageCPU<float>> imageCPU,
       _bufferCubemap[i][f] = std::make_shared<RenderGraph::Buffer>(
           sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-          *engineState->getMemoryAllocator());
+          *engineState->getMemoryAllocator(), *engineState->getDevice());
     }
   }
   // setup color
@@ -145,8 +136,8 @@ void Equirectangular::_convertToCubemap() {
   auto logger = _engineState->getLogger();
 
   _cubemap = std::make_shared<Cubemap>(_engineState->getSettings()->getShadowMapResolution(),
-                                       _engineState->getSettings()->getGraphicColorFormat(), 1,
-                                       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT,
+                                       _engineState->getSettings()->getGraphicColorFormat(), 1, VK_IMAGE_LAYOUT_GENERAL,
+                                       VK_IMAGE_ASPECT_COLOR_BIT,
                                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                                        VK_FILTER_LINEAR, _commandBufferTransfer, _engineState);
 
@@ -155,10 +146,17 @@ void Equirectangular::_convertToCubemap() {
                     _pipelineEquirectangular->getPipeline());
   auto [width, height] = _engineState->getSettings()->getShadowMapResolution();
   auto& cubemapImage = _cubemap->getTexture()->getImageView().getImage();
-  cubemapImage.changeLayout(
-      cubemapImage.getImageLayout(), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *_commandBufferTransfer);
+  {
+    RenderGraph::Barrier barrier;
+    barrier.addImage(cubemapImage.getImage(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, cubemapImage.getImageLayout(),
+                     VK_IMAGE_LAYOUT_GENERAL,
+                     {cubemapImage.getAspectMask(), 0, static_cast<uint32_t>(cubemapImage.getMipMapNumber()), 0,
+                      static_cast<uint32_t>(cubemapImage.getLayerNumber())});
+    barrier.execute(_commandBufferTransfer->getCommandBuffer());
+    cubemapImage.setImageLayout(VK_IMAGE_LAYOUT_GENERAL);
+  }
   // render equirectangular to cubemap
   /////////////////////////////////////////////////////////////////////////////////////////
   // render graphic
@@ -219,8 +217,8 @@ void Equirectangular::_convertToCubemap() {
     VkRect2D scissor{.offset = {0, 0}, .extent = VkExtent2D(width, height)};
     vkCmdSetScissor(_commandBufferTransfer->getCommandBuffer(), 0, 1, &scissor);
     BufferMVP cameraUBO{.model = glm::mat4(1.f), .view = _camera->getView(), .projection = _camera->getProjection()};
-    std::memcpy(static_cast<std::byte*>(_bufferCubemap[currentFrame][i]->getAllocationInfo().pMappedData), &cameraUBO,
-                static_cast<std::size_t>(_bufferCubemap[currentFrame][i]->getSize()));
+    _engineState->getResourceUploader()->upload(*_bufferCubemap[currentFrame][i],
+                                                std::as_bytes(std::span(&cameraUBO, 1)));
 
     VkBuffer vertexBuffers[] = {_mesh3D->getVertexBuffer()->getBuffer()->getBuffer()};
     VkDeviceSize offsets[] = {0};
@@ -230,7 +228,7 @@ void Equirectangular::_convertToCubemap() {
                          _mesh3D->getIndexBuffer()->getBuffer()->getBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
     _descriptorSetCubemap[currentFrame][i]->bind(
-        VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineEquirectangular->getPipelineLayout(), *_commandBufferTransfer);
+        VK_PIPELINE_BIND_POINT_GRAPHICS, _pipelineEquirectangular->getPipelineLayout(), *_commandBufferTransfer, 0);
 
     vkCmdDrawIndexed(_commandBufferTransfer->getCommandBuffer(), static_cast<uint32_t>(_mesh3D->getIndexData().size()),
                      1, 0, 0, 0);
@@ -238,10 +236,17 @@ void Equirectangular::_convertToCubemap() {
 
     vkCmdEndRendering(_commandBufferTransfer->getCommandBuffer());
   }
-  cubemapImage.changeLayout(
-      cubemapImage.getImageLayout(), VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-      VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *_commandBufferTransfer);
+  {
+    RenderGraph::Barrier barrier;
+    barrier.addImage(cubemapImage.getImage(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                     VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, cubemapImage.getImageLayout(),
+                     VK_IMAGE_LAYOUT_GENERAL,
+                     {cubemapImage.getAspectMask(), 0, static_cast<uint32_t>(cubemapImage.getMipMapNumber()), 0,
+                      static_cast<uint32_t>(cubemapImage.getLayerNumber())});
+    barrier.execute(_commandBufferTransfer->getCommandBuffer());
+    cubemapImage.setImageLayout(VK_IMAGE_LAYOUT_GENERAL);
+  }
 }
 
 std::shared_ptr<RenderGraph::Texture> Equirectangular::getTexture() { return _texture; }

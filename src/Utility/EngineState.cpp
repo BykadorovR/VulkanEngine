@@ -35,6 +35,7 @@ void EngineState::initialize() {
   _device->initialize(deviceRequirements);
   _memoryAllocator = std::make_shared<RenderGraph::MemoryAllocator>(*_device, *_instance);
   _resourceUploader = std::make_shared<RenderGraph::ResourceUploader>(*_memoryAllocator, *_device);
+  _mipmapGenerator = std::make_unique<RenderGraph::MipmapGenerator>(*_device);
   const RenderGraph::DescriptorPoolSize descriptorPoolSize{
       .uniformBuffer = _settings->getPoolSizeUBO(),
       .sampler = _settings->getPoolSizeSampler(),
@@ -71,7 +72,9 @@ std::shared_ptr<Filesystem> EngineState::getFilesystem() { return _filesystem; }
 
 std::shared_ptr<RenderGraph::ResourceUploader> EngineState::getResourceUploader() { return _resourceUploader; }
 
-std::vector<RenderGraph::UploadTicket>& EngineState::getUploadTickets() { return _uploadTickets; }
+RenderGraph::MipmapGenerator& EngineState::getMipmapGenerator() { return *_mipmapGenerator; }
+
+std::vector<RenderGraph::GpuTicket>& EngineState::getUploadTickets() { return _uploadTickets; }
 
 std::shared_ptr<Logger> EngineState::getLogger() { return _logger; }
 

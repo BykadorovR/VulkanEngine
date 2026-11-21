@@ -95,5 +95,4 @@ class LightManager {
   std::shared_ptr<RenderGraph::DescriptorSet> getDSGlobalTerrainPBR();
 
   void draw(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer);
-  void update(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer);
 };

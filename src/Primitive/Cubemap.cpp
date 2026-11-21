@@ -11,7 +11,7 @@ Cubemap::Cubemap(std::shared_ptr<ImageDataBuffer> data,
   _engineState = engineState;
   // image
   // usage VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-  auto image = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator());
+  auto image = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator(), *engineState->getDevice());
   image->createImage(format, {std::get<0>(data->getResolution()), std::get<1>(data->getResolution())}, mipMapLevels,
                      data->getNumber(), colorBits, usage, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT);
   const auto* bytes = static_cast<const std::byte*>(data->buffer->getAllocationInfo().pMappedData);
@@ -20,7 +20,19 @@ Cubemap::Cubemap(std::shared_ptr<ImageDataBuffer> data,
                                  data->getChannels();
   const std::array<VkDeviceSize, 6> offsets{0, imageSize, imageSize * 2, imageSize * 3, imageSize * 4, imageSize * 5};
   _engineState->getResourceUploader()->upload(*image, imageBytes, offsets);
-  _engineState->getUploadTickets().push_back(_engineState->getResourceUploader()->submit());
+  if (auto ticket = _engineState->getResourceUploader()->submit()) {
+    if (image->getMipMapNumber() > 1) {
+      const auto mipmapFilter = _engineState->getDevice()->isFormatFeatureSupported(
+                                    image->getFormat(), VK_IMAGE_TILING_OPTIMAL,
+                                    VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)
+                                    ? VK_FILTER_LINEAR
+                                    : VK_FILTER_NEAREST;
+      auto& mipmapGenerator = _engineState->getMipmapGenerator();
+      mipmapGenerator.generate(*image, mipmapFilter);
+      ticket = mipmapGenerator.submit(std::span(&*ticket, 1));
+    }
+    _engineState->getUploadTickets().push_back(*ticket);
+  }
 
   _imageViewSeparate.resize(6);
   _textureSeparate.resize(6);
@@ -28,10 +40,12 @@ Cubemap::Cubemap(std::shared_ptr<ImageDataBuffer> data,
     _imageViewSeparate[i].resize(mipMapLevels);
     _textureSeparate[i].resize(mipMapLevels);
     for (int j = 0; j < mipMapLevels; j++) {
-      auto faceImage = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator());
+      auto faceImage = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator(),
+                                                            *engineState->getDevice());
       faceImage->wrapImage(image->getImage(), format,
-                           {std::get<0>(data->getResolution()), std::get<1>(data->getResolution())}, 1, 1, colorBits,
-                           usage);
+                           {std::get<0>(data->getResolution()), std::get<1>(data->getResolution())}, j + 1,
+                           image->getLayerNumber(), colorBits, usage);
+      faceImage->setImageLayout(image->getImageLayout());
       _imageViewSeparate[i][j] = std::make_shared<RenderGraph::ImageView>(std::move(faceImage),
                                                                           *engineState->getDevice());
       _imageViewSeparate[i][j]->createImageView(VK_IMAGE_VIEW_TYPE_2D, j, i);
@@ -60,13 +74,20 @@ Cubemap::Cubemap(std::tuple<int, int> resolution,
                  std::shared_ptr<EngineState> engineState) {
   _engineState = engineState;
   // usage VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-  auto image = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator());
+  auto image = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator(), *engineState->getDevice());
   image->createImage(format, {std::get<0>(resolution), std::get<1>(resolution)}, mipMapLevels, 6, colorBits, usage,
                      VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT);
-  // VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-  image->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, layout, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-                      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                      VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, *commandBufferTransfer);
+  // VK_IMAGE_LAYOUT_GENERAL
+  {
+    RenderGraph::Barrier barrier;
+    barrier.addImage(
+        image->getImage(), VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, layout,
+        {image->getAspectMask(), 0, static_cast<uint32_t>(image->getMipMapNumber()), 0,
+         static_cast<uint32_t>(image->getLayerNumber())});
+    barrier.execute(commandBufferTransfer->getCommandBuffer());
+    image->setImageLayout(layout);
+  }
 
   _imageViewSeparate.resize(6);
   _textureSeparate.resize(6);
@@ -74,9 +95,11 @@ Cubemap::Cubemap(std::tuple<int, int> resolution,
     _imageViewSeparate[i].resize(mipMapLevels);
     _textureSeparate[i].resize(mipMapLevels);
     for (int j = 0; j < mipMapLevels; j++) {
-      auto faceImage = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator());
-      faceImage->wrapImage(image->getImage(), format, {std::get<0>(resolution), std::get<1>(resolution)}, 1, 1,
-                           colorBits, usage);
+      auto faceImage = std::make_unique<RenderGraph::Image>(*engineState->getMemoryAllocator(),
+                                                            *engineState->getDevice());
+      faceImage->wrapImage(image->getImage(), format, {std::get<0>(resolution), std::get<1>(resolution)}, j + 1,
+                           image->getLayerNumber(), colorBits, usage);
+      faceImage->setImageLayout(image->getImageLayout());
       _imageViewSeparate[i][j] = std::make_shared<RenderGraph::ImageView>(std::move(faceImage),
                                                                           *engineState->getDevice());
       _imageViewSeparate[i][j]->createImageView(VK_IMAGE_VIEW_TYPE_2D, j, i);

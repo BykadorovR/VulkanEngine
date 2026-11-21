@@ -39,7 +39,7 @@ void ParticleSystemGraphic::_initializeGraphic(const RenderGraph::CommandBuffer&
     _cameraUniformBuffer[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(BufferMVP), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
   _descriptorSetLayoutGraphic = std::make_shared<RenderGraph::DescriptorSetLayout>(*_engineState->getDevice());
 
@@ -101,13 +101,8 @@ std::vector<std::unique_ptr<RenderGraph::Buffer>> ParticleSystemGraphic::createP
     auto buffer = std::make_unique<RenderGraph::Buffer>(
         _particles.size() * sizeof(Particle), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
-    std::memcpy(buffer->getAllocationInfo().pMappedData, _particles.data(),
-                static_cast<std::size_t>(buffer->getSize()));
-    if (vmaFlushAllocation(_engineState->getMemoryAllocator()->getAllocator(), buffer->getAllocation(), 0,
-                           VK_WHOLE_SIZE) != VK_SUCCESS) {
-      throw std::runtime_error("Failed to flush particle buffer");
-    }
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
+    _engineState->getResourceUploader()->upload(*buffer, std::as_bytes(std::span(_particles)));
     particleBuffers.push_back(std::move(buffer));
   }
   return particleBuffers;
@@ -162,7 +157,7 @@ ParticleSystemCompute::ParticleSystemCompute(std::shared_ptr<ParticleSystemGraph
     _deltaUniformBuffer[frame] = std::make_shared<RenderGraph::Buffer>(
         sizeof(float), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
   }
 
   _descriptorSetLayout = std::make_shared<RenderGraph::DescriptorSetLayout>(*_engineState->getDevice());
@@ -194,63 +189,13 @@ void ParticleSystemCompute::draw(int currentFrame, const RenderGraph::CommandBuf
       "Particle system compute " + _particleSystemGraphic->getName() + ", frame: " + std::to_string(currentFrame),
       &commandBuffer);
 
-  const auto frameCount = static_cast<int>(_particlesBuffer.size());
-  const auto previousFrame = (currentFrame + frameCount - 1) % frameCount;
-
-  std::vector<VkBufferMemoryBarrier2> barriersBefore;
-  if (previousFrame == currentFrame) {
-    barriersBefore.push_back({
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = _particlesBuffer[currentFrame]->getBuffer(),
-        .offset = 0,
-        .size = _particlesBuffer[currentFrame]->getSize(),
-    });
-  } else {
-    barriersBefore.push_back({
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = _particlesBuffer[previousFrame]->getBuffer(),
-        .offset = 0,
-        .size = _particlesBuffer[previousFrame]->getSize(),
-    });
-    barriersBefore.push_back({
-        .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-        .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .buffer = _particlesBuffer[currentFrame]->getBuffer(),
-        .offset = 0,
-        .size = _particlesBuffer[currentFrame]->getSize(),
-    });
-  }
-  const VkDependencyInfo dependencyBefore{
-      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-      .bufferMemoryBarrierCount = static_cast<uint32_t>(barriersBefore.size()),
-      .pBufferMemoryBarriers = barriersBefore.data(),
-  };
-  vkCmdPipelineBarrier2(commandBuffer.getCommandBuffer(), &dependencyBefore);
-
   const float timeDelta = _particleSystemGraphic->getFrameTimer() * 2.f;
-  std::memcpy(static_cast<std::byte*>(_deltaUniformBuffer[currentFrame]->getAllocationInfo().pMappedData), &timeDelta,
-              static_cast<std::size_t>(_deltaUniformBuffer[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_deltaUniformBuffer[currentFrame],
+                                              std::as_bytes(std::span(&timeDelta, 1)));
 
   vkCmdBindPipeline(commandBuffer.getCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline->getPipeline());
 
-  _descriptorSets[currentFrame]->bind(VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline->getPipelineLayout(), commandBuffer);
+  _descriptorSets[currentFrame]->bind(VK_PIPELINE_BIND_POINT_COMPUTE, _pipeline->getPipelineLayout(), commandBuffer, 0);
 
   vkCmdDispatch(commandBuffer.getCommandBuffer(),
                 std::max(1, static_cast<int>(std::ceil(_particleSystemGraphic->getParticleCount() / 16.f))), 1, 1);
@@ -290,15 +235,15 @@ void ParticleSystemGraphic::draw(int currentFrame, const RenderGraph::CommandBuf
   BufferMVP cameraUBO{.model = getModel(),
                       .view = _gameState->getCameraManager()->getCurrentCamera()->getView(),
                       .projection = _gameState->getCameraManager()->getCurrentCamera()->getProjection()};
-  std::memcpy(static_cast<std::byte*>(_cameraUniformBuffer[currentFrame]->getAllocationInfo().pMappedData), &cameraUBO,
-              static_cast<std::size_t>(_cameraUniformBuffer[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_cameraUniformBuffer[currentFrame],
+                                              std::as_bytes(std::span(&cameraUBO, 1)));
 
   VkBuffer vertexBuffers[] = {_particlesBuffer[currentFrame]->getBuffer()};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(commandBuffer.getCommandBuffer(), 0, 1, vertexBuffers, offsets);
 
   _descriptorSetGraphic[currentFrame]->bind(VK_PIPELINE_BIND_POINT_GRAPHICS, _graphicPipeline->getPipelineLayout(),
-                                            commandBuffer);
+                                            commandBuffer, 0);
 
   vkCmdDraw(commandBuffer.getCommandBuffer(), static_cast<uint32_t>(_particles.size()), 1, 0, 0);
   logger->end(&commandBuffer);

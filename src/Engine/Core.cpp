@@ -63,9 +63,7 @@ class SceneRenderStage final : public RenderGraph::GraphElement {
     }
   }
 
-  void update(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) override {
-    _gameState->getLightManager()->update(currentFrame, commandBuffer);
-  }
+  void update(int, const RenderGraph::CommandBuffer&) override {}
 
   void reset(const std::vector<std::shared_ptr<RenderGraph::ImageView>>&) override {}
 };
@@ -120,7 +118,7 @@ void Core::_initializeFrameResources() {
 
   // Application command buffers.
   _applicationCommandBuffers.clear();
-  _applicationCommandPool = std::make_unique<RenderGraph::CommandPool>(RenderGraph::QueueType::GRAPHICS, *device);
+  _applicationCommandPool = std::make_unique<RenderGraph::CommandPool>(RenderGraph::QueueType::GENERAL, *device);
 
   _applicationCommandBuffers.reserve(frameCount);
   for (int frame = 0; frame < frameCount; ++frame) {
@@ -152,48 +150,20 @@ void Core::_addRenderGraphFlightImages(std::string_view name,
                                        int layer) {
   std::vector<std::shared_ptr<RenderGraph::ImageView>> nativeViews;
   nativeViews.reserve(images.size());
-  const auto* commandBuffer = getCommandBufferApplication();
   for (const auto* image : images) {
     if (layer < 0 || layer >= image->getLayerNumber()) {
       throw std::out_of_range("RenderGraph image layer is out of range");
     }
-    auto attachmentImage = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator());
+    auto attachmentImage = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator(),
+                                                                *_engineState->getDevice());
     const auto resolution = image->getResolution();
-    attachmentImage->wrapImage(image->getImage(), image->getFormat(), resolution, 1, 1, aspectMask,
-                               image->getUsageFlags());
+    attachmentImage->wrapImage(image->getImage(), image->getFormat(), resolution, image->getMipMapNumber(),
+                               image->getLayerNumber(), aspectMask, image->getUsageFlags());
     const auto imageLayout = image->getImageLayout();
     if (imageLayout != VK_IMAGE_LAYOUT_GENERAL) {
       throw std::logic_error("RenderGraph flight image must use VK_IMAGE_LAYOUT_GENERAL");
     }
-    const VkImageMemoryBarrier2 barrier{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-        .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = image->getImage(),
-        .subresourceRange =
-            {
-                .aspectMask = image->getAspectMask(),
-                .baseMipLevel = 0,
-                .levelCount = static_cast<uint32_t>(image->getMipMapNumber()),
-                .baseArrayLayer = static_cast<uint32_t>(layer),
-                .layerCount = 1,
-            },
-    };
-    const VkDependencyInfo dependencyInfo{
-        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &barrier,
-    };
-    vkCmdPipelineBarrier2(commandBuffer->getCommandBuffer(), &dependencyInfo);
-    // wrapImage does not copy the tracked layout, so keep the wrapper state consistent with the wrapped image.
-    attachmentImage->changeLayout(VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_NONE, 0,
-                                  VK_PIPELINE_STAGE_2_NONE, 0, *commandBuffer);
+    attachmentImage->setImageLayout(imageLayout);
     auto attachmentView = std::make_shared<RenderGraph::ImageView>(std::move(attachmentImage),
                                                                    *_engineState->getDevice());
     attachmentView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, layer);
@@ -252,9 +222,7 @@ void Core::initialize() {
   const auto debugUtils = _engineState->getDebugUtils();
   const auto device = _engineState->getDevice();
   debugUtils->setName("Queue graphic", VkObjectType::VK_OBJECT_TYPE_QUEUE,
-                      device->getQueue(RenderGraph::QueueType::GRAPHICS));
-  debugUtils->setName("Queue present", VkObjectType::VK_OBJECT_TYPE_QUEUE,
-                      device->getQueue(RenderGraph::QueueType::PRESENT));
+                      device->getQueue(RenderGraph::QueueType::GENERAL));
   debugUtils->setName("Queue compute", VkObjectType::VK_OBJECT_TYPE_QUEUE,
                       device->getQueue(RenderGraph::QueueType::COMPUTE));
   for (const auto& commandBuffer : _applicationCommandBuffers) {
@@ -279,7 +247,7 @@ void Core::_resetRenderGraph() {
 #else
   if (resolution.x == 0 || resolution.y == 0) {
     const VkSubmitInfo2 frameSubmitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-    if (vkQueueSubmit2(device->getQueue(RenderGraph::QueueType::GRAPHICS), 1, &frameSubmitInfo,
+    if (vkQueueSubmit2(device->getQueue(RenderGraph::QueueType::GENERAL), 1, &frameSubmitInfo,
                        _frameFences.at(currentFrame)) != VK_SUCCESS) {
       throw std::runtime_error("failed to submit frame fence");
     }
@@ -300,12 +268,11 @@ void Core::_resetRenderGraph() {
         .commandBufferInfoCount = 1,
         .pCommandBufferInfos = &commandBufferInfo,
     };
-    if (vkQueueSubmit2(device->getQueue(RenderGraph::QueueType::GRAPHICS), 1, &applicationSubmitInfo, nullptr) !=
+    if (vkQueueSubmit2(device->getQueue(RenderGraph::QueueType::GENERAL), 1, &applicationSubmitInfo, nullptr) !=
         VK_SUCCESS) {
       throw std::runtime_error("failed to submit application commands");
     }
   }
-
   if (vkDeviceWaitIdle(device->getLogicalDevice()) != VK_SUCCESS) {
     throw std::runtime_error("failed to reset render graph");
   }
@@ -336,7 +303,8 @@ void Core::_resetRenderGraph() {
     std::vector<std::shared_ptr<RenderGraph::ImageView>> graphicImageViews;
     graphicImageViews.reserve(frameCount);
     for (int frame = 0; frame < frameCount; ++frame) {
-      auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator());
+      auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator(),
+                                                        *_engineState->getDevice());
       image->createImage(settings->getGraphicColorFormat(), {extent.width, extent.height}, 1, 1,
                          VK_IMAGE_ASPECT_COLOR_BIT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT);
       auto imageView = std::make_shared<RenderGraph::ImageView>(std::move(image), *device);
@@ -505,8 +473,16 @@ void Core::_buildRenderGraph() {
     const auto& particleSystem = _particleSystems[particleIndex];
     const std::string bufferName = "Particles " + std::to_string(particleIndex);
     auto particleBuffers = particleSystem->createParticleBuffers();
-    graphStorage.add(bufferName, particleBuffers);
-    particleSystem->attachParticleBuffers(graphStorage.getBuffer(bufferName));
+    std::vector<std::shared_ptr<RenderGraph::Buffer>> sharedBuffers;
+    for (auto& buffer : particleBuffers) sharedBuffers.emplace_back(std::move(buffer));
+    graphStorage.add(bufferName, std::make_unique<RenderGraph::BufferHandler>(
+                                     sharedBuffers, [this] { return _renderGraph->getFrameInFlight(); }));
+    graphStorage.add(bufferName + " previous",
+                     std::make_unique<RenderGraph::BufferHandler>(std::move(sharedBuffers), [this] {
+                       const int frames = _engineState->getSettings()->getMaxFramesInFlight();
+                       return (_renderGraph->getFrameInFlight() + frames - 1) % frames;
+                     }));
+    particleSystem->attachParticleBuffers(graphStorage.getBufferHandler(bufferName).getBuffers());
     particleBufferNames.push_back(bufferName);
   }
 
@@ -522,7 +498,8 @@ void Core::_buildRenderGraph() {
 
   const auto settings = _engineState->getSettings();
   const auto [width, height] = settings->getResolution();
-  auto depthImage = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator());
+  auto depthImage = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator(),
+                                                         *_engineState->getDevice());
   depthImage->createImage(settings->getDepthFormat(), {width, height}, 1, 1, VK_IMAGE_ASPECT_DEPTH_BIT,
                           VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
   auto depthImageView = std::make_shared<RenderGraph::ImageView>(std::move(depthImage), *_engineState->getDevice());
@@ -570,14 +547,15 @@ void Core::_buildRenderGraph() {
   renderPass.setDepthTarget("Depth", RenderGraph::RenderTargetLoadAction::CLEAR);
 
   if (!_particleSystems.empty()) {
-    auto& particleComputePass = _renderGraph->createPassCompute("Particle compute", false);
+    auto& particleComputePass = _renderGraph->createPassCompute("Particle compute", RenderGraph::QueueType::GENERAL);
     auto& particleDrawPass = _renderGraph->createPassGraphic("Particles");
     for (std::size_t particleIndex = 0; particleIndex < _particleSystems.size(); ++particleIndex) {
       const auto& particleSystem = _particleSystems[particleIndex];
       const auto& bufferName = particleBufferNames[particleIndex];
       particleComputePass.registerGraphElement(std::make_shared<ParticleSystemCompute>(
-          particleSystem, graphStorage.getBuffer(bufferName), *getCommandBufferApplication(), _engineState));
-      particleComputePass.addStorageBufferInput(bufferName);
+          particleSystem, graphStorage.getBufferHandler(bufferName).getBuffers(), *getCommandBufferApplication(),
+          _engineState));
+      particleComputePass.addStorageBufferInput(bufferName + " previous");
       particleComputePass.addStorageBufferOutput(bufferName);
       particleDrawPass.addVertexBufferInput(bufferName);
     }
@@ -587,7 +565,7 @@ void Core::_buildRenderGraph() {
   }
 
   if (_postprocessing) {
-    auto& postprocessingPass = _renderGraph->createPassCompute("Postprocessing", false);
+    auto& postprocessingPass = _renderGraph->createPassCompute("Postprocessing", RenderGraph::QueueType::GENERAL);
     postprocessingPass.registerGraphElement(_postprocessing);
     postprocessingPass.addStorageTextureInput("Graphic");
     postprocessingPass.addStorageTextureOutput("Swapchain");
@@ -629,6 +607,7 @@ void Core::draw() {
       throw std::runtime_error("failed to reset frame fence");
     }
     _engineState->setFrameInFlight(frameInFlight);
+    _engineState->getMipmapGenerator().reclaim();
     _engineState->getResourceUploader()->reclaim();
 
     const auto* commandBufferApplication = getCommandBufferApplication();
@@ -649,25 +628,31 @@ void Core::draw() {
     auto& applicationCommandBuffer = *_applicationCommandBuffers.at(frameInFlight);
     applicationCommandBuffer.endCommands();
     const auto& uploadTickets = _engineState->getUploadTickets();
-    // Wait for uploads before application commands and subsequent Graph submissions on the graphics queue.
-    const VkSemaphoreSubmitInfo uploadWaitInfo{
-        .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
-        .semaphore = uploadTickets.empty() ? VK_NULL_HANDLE : uploadTickets.back().semaphore,
-        .value = uploadTickets.empty() ? 0 : uploadTickets.back().value,
-        .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-    };
+    std::vector<VkSemaphoreSubmitInfo> uploadWaits;
+    uploadWaits.reserve(uploadTickets.size());
+    for (const auto& ticket : uploadTickets) {
+      _renderGraph->addFrameWait(ticket);
+      const auto existing = std::ranges::find(uploadWaits, ticket.semaphore, &VkSemaphoreSubmitInfo::semaphore);
+      if (existing != uploadWaits.end())
+        existing->value = std::max(existing->value, ticket.value);
+      else
+        uploadWaits.push_back({.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+                               .semaphore = ticket.semaphore,
+                               .value = ticket.value,
+                               .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT});
+    }
     const VkCommandBufferSubmitInfo commandBufferInfo{
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
         .commandBuffer = applicationCommandBuffer.getCommandBuffer(),
     };
     const VkSubmitInfo2 applicationSubmitInfo{
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-        .waitSemaphoreInfoCount = uploadTickets.empty() ? 0u : 1u,
-        .pWaitSemaphoreInfos = &uploadWaitInfo,
+        .waitSemaphoreInfoCount = static_cast<uint32_t>(uploadWaits.size()),
+        .pWaitSemaphoreInfos = uploadWaits.data(),
         .commandBufferInfoCount = 1,
         .pCommandBufferInfos = &commandBufferInfo,
     };
-    if (vkQueueSubmit2(device->getQueue(RenderGraph::QueueType::GRAPHICS), 1, &applicationSubmitInfo, nullptr) !=
+    if (vkQueueSubmit2(device->getQueue(RenderGraph::QueueType::GENERAL), 1, &applicationSubmitInfo, nullptr) !=
         VK_SUCCESS) {
       throw std::runtime_error("failed to submit application commands");
     }
@@ -697,7 +682,7 @@ void Core::draw() {
       });
     }
     const VkSubmitInfo2 frameSubmitInfo{.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-    if (vkQueueSubmit2(device->getQueue(RenderGraph::QueueType::GRAPHICS), 1, &frameSubmitInfo,
+    if (vkQueueSubmit2(device->getQueue(RenderGraph::QueueType::GENERAL), 1, &frameSubmitInfo,
                        _frameFences.at(frameInFlight)) != VK_SUCCESS) {
       throw std::runtime_error("failed to submit frame fence");
     }
@@ -912,7 +897,7 @@ std::shared_ptr<Postprocessing> Core::createPostprocessing() {
   std::vector<std::shared_ptr<RenderGraph::ImageView>> graphicImageViews;
   graphicImageViews.reserve(settings->getMaxFramesInFlight());
   for (int frame = 0; frame < settings->getMaxFramesInFlight(); ++frame) {
-    auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator());
+    auto image = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator(), *_engineState->getDevice());
     image->createImage(settings->getGraphicColorFormat(), {width, height}, 1, 1, VK_IMAGE_ASPECT_COLOR_BIT,
                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT);
     auto imageView = std::make_shared<RenderGraph::ImageView>(std::move(image), *_engineState->getDevice());
@@ -1012,13 +997,21 @@ std::shared_ptr<DirectionalShadowResources> Core::createDirectionalShadow(
   std::vector<std::shared_ptr<RenderGraph::Texture>> blurTextures;
   blurTextures.reserve(frameCount);
   for (int frame = 0; frame < frameCount; ++frame) {
-    auto blurImage = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator());
+    auto blurImage = std::make_unique<RenderGraph::Image>(*_engineState->getMemoryAllocator(),
+                                                          *_engineState->getDevice());
     blurImage->createImage(shadowFormat, resolution, 1, 1, VK_IMAGE_ASPECT_COLOR_BIT,
                            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
-    blurImage->changeLayout(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                            VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
-                            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                            VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, *commandBuffer);
+    {
+      RenderGraph::Barrier barrier;
+      barrier.addImage(blurImage->getImage(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                       VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                       VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+                       VK_IMAGE_LAYOUT_GENERAL,
+                       {blurImage->getAspectMask(), 0, static_cast<uint32_t>(blurImage->getMipMapNumber()), 0,
+                        static_cast<uint32_t>(blurImage->getLayerNumber())});
+      barrier.execute(commandBuffer->getCommandBuffer());
+      blurImage->setImageLayout(VK_IMAGE_LAYOUT_GENERAL);
+    }
 
     auto blurImageView = std::make_shared<RenderGraph::ImageView>(std::move(blurImage), *device);
     blurImageView->createImageView(VK_IMAGE_VIEW_TYPE_2D, 0, 0);

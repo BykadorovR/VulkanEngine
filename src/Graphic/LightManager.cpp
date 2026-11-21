@@ -79,58 +79,55 @@ LightManager::LightManager(std::shared_ptr<ResourceManager> resourceManager,
     _lightDirectionalSSBOStub = std::make_shared<RenderGraph::Buffer>(
         sizeof(glm::vec4) + lightTmp->getSize(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
     // fill only number of lights because it's stub
     int number = 0;
-    std::memcpy(static_cast<std::byte*>(_lightDirectionalSSBOStub->getAllocationInfo().pMappedData), &number,
-                static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightDirectionalSSBOStub, std::as_bytes(std::span(&number, 1)));
   }
   {
     auto lightTmp = std::make_shared<PointLight>(_engineState);
     _lightPointSSBOStub = std::make_shared<RenderGraph::Buffer>(
         sizeof(glm::vec4) + lightTmp->getSize(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
     // fill only number of lights because it's stub
     int number = 0;
-    std::memcpy(static_cast<std::byte*>(_lightPointSSBOStub->getAllocationInfo().pMappedData), &number,
-                static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightPointSSBOStub, std::as_bytes(std::span(&number, 1)));
   }
   {
     auto lightTmp = std::make_shared<AmbientLight>();
     _lightAmbientSSBOStub = std::make_shared<RenderGraph::Buffer>(
         sizeof(glm::vec4) + lightTmp->getSize(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
     // fill only number of lights because it's stub
     int number = 0;
-    std::memcpy(static_cast<std::byte*>(_lightAmbientSSBOStub->getAllocationInfo().pMappedData), &number,
-                static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightAmbientSSBOStub, std::as_bytes(std::span(&number, 1)));
   }
   {
     _lightDirectionalSSBOViewProjectionStub = std::make_shared<RenderGraph::Buffer>(
         sizeof(glm::vec4) + sizeof(glm::mat4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
     // fill only number of lights because it's stub
     int number = 0;
-    std::memcpy(static_cast<std::byte*>(_lightDirectionalSSBOViewProjectionStub->getAllocationInfo().pMappedData),
-                &number, static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightDirectionalSSBOViewProjectionStub,
+                                                std::as_bytes(std::span(&number, 1)));
   }
   {
     _lightPointSSBOViewProjectionStub = std::make_shared<RenderGraph::Buffer>(
         sizeof(glm::vec4) + sizeof(glm::mat4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
     // fill only number of lights because it's stub
     int number = 0;
-    std::memcpy(static_cast<std::byte*>(_lightPointSSBOViewProjectionStub->getAllocationInfo().pMappedData), &number,
-                static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightPointSSBOViewProjectionStub,
+                                                std::as_bytes(std::span(&number, 1)));
   }
 
   _shadowParametersBuffer.resize(_engineState->getSettings()->getMaxFramesInFlight());
@@ -138,7 +135,7 @@ LightManager::LightManager(std::shared_ptr<ResourceManager> resourceManager,
     _shadowParametersBuffer[i] = std::make_shared<RenderGraph::Buffer>(
         ShadowParameters::getSize(), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
 
   // stub texture
   _stubTexture = resourceManager->getTextureOne();
@@ -261,22 +258,23 @@ void LightManager::_reallocateAmbientBuffers(int currentFrame) {
     _lightAmbientSSBO[currentFrame] = std::make_shared<RenderGraph::Buffer>(
         size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
   }
 }
 
 void LightManager::_updateAmbientBuffers(int currentFrame) {
   if (!_ambientLights.empty()) {
     int offset = 0;
-    // we don't want to do multiple map/unmap that's why we don't use corresponding RenderGraph::Buffer method setData
     const int ambientNumber = static_cast<int>(_ambientLights.size());
-    std::memcpy(static_cast<std::byte*>(_lightAmbientSSBO[currentFrame]->getAllocationInfo().pMappedData) + (offset),
-                &ambientNumber, static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightAmbientSSBO[currentFrame],
+                                                std::as_bytes(std::span(&ambientNumber, 1)), (offset));
     offset += sizeof(glm::vec4);
     for (int i = 0; i < _ambientLights.size(); i++) {
       // we pass inverse bind matrices to shader via SSBO
-      std::memcpy(static_cast<std::byte*>(_lightAmbientSSBO[currentFrame]->getAllocationInfo().pMappedData) + (offset),
-                  _ambientLights[i]->getData(), static_cast<std::size_t>(_ambientLights[i]->getSize()));
+      _engineState->getResourceUploader()->upload(*_lightAmbientSSBO[currentFrame],
+                                                  std::span(static_cast<const std::byte*>(_ambientLights[i]->getData()),
+                                                            static_cast<std::size_t>(_ambientLights[i]->getSize())),
+                                                  (offset));
       offset += _ambientLights[i]->getSize();
     }
   }
@@ -295,7 +293,7 @@ void LightManager::_reallocateDirectionalBuffers(int currentFrame) {
     _lightDirectionalSSBO[currentFrame] = std::make_shared<RenderGraph::Buffer>(
         size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
   }
 
   size = 0;
@@ -308,7 +306,7 @@ void LightManager::_reallocateDirectionalBuffers(int currentFrame) {
     _lightDirectionalSSBOViewProjection[currentFrame] = std::make_shared<RenderGraph::Buffer>(
         size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
   }
 }
 
@@ -316,15 +314,16 @@ void LightManager::_updateDirectionalBuffers(int currentFrame) {
   const int directionalNumber = static_cast<int>(_directionalLights.size());
   if (!_directionalLights.empty()) {
     int offset = 0;
-    std::memcpy(
-        static_cast<std::byte*>(_lightDirectionalSSBO[currentFrame]->getAllocationInfo().pMappedData) + (offset),
-        &directionalNumber, static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightDirectionalSSBO[currentFrame],
+                                                std::as_bytes(std::span(&directionalNumber, 1)), (offset));
     offset += sizeof(glm::vec4);
     for (int i = 0; i < _directionalLights.size(); i++) {
       // we pass inverse bind matrices to shader via SSBO
-      std::memcpy(
-          static_cast<std::byte*>(_lightDirectionalSSBO[currentFrame]->getAllocationInfo().pMappedData) + (offset),
-          _directionalLights[i]->getData(), static_cast<std::size_t>(_directionalLights[i]->getSize()));
+      _engineState->getResourceUploader()->upload(
+          *_lightDirectionalSSBO[currentFrame],
+          std::span(static_cast<const std::byte*>(_directionalLights[i]->getData()),
+                    static_cast<std::size_t>(_directionalLights[i]->getSize())),
+          (offset));
       offset += _directionalLights[i]->getSize();
     }
   }
@@ -337,15 +336,11 @@ void LightManager::_updateDirectionalBuffers(int currentFrame) {
       directionalVP.push_back(viewProjection);
     }
     int offset = 0;
-    std::memcpy(
-        static_cast<std::byte*>(_lightDirectionalSSBOViewProjection[currentFrame]->getAllocationInfo().pMappedData) +
-            (offset),
-        &directionalNumber, static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightDirectionalSSBOViewProjection[currentFrame],
+                                                std::as_bytes(std::span(&directionalNumber, 1)), (offset));
     offset += sizeof(glm::vec4);
-    std::memcpy(
-        static_cast<std::byte*>(_lightDirectionalSSBOViewProjection[currentFrame]->getAllocationInfo().pMappedData) +
-            (offset),
-        directionalVP.data(), static_cast<std::size_t>(directionalVP.size() * sizeof(glm::mat4)));
+    _engineState->getResourceUploader()->upload(*_lightDirectionalSSBOViewProjection[currentFrame],
+                                                std::as_bytes(std::span(directionalVP)), (offset));
   }
 }
 
@@ -360,7 +355,7 @@ void LightManager::_reallocatePointBuffers(int currentFrame) {
     _lightPointSSBO[currentFrame] = std::make_shared<RenderGraph::Buffer>(
         size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
   }
 
   size = 0;
@@ -373,7 +368,7 @@ void LightManager::_reallocatePointBuffers(int currentFrame) {
     _lightPointSSBOViewProjection[currentFrame] = std::make_shared<RenderGraph::Buffer>(
         size, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *_engineState->getMemoryAllocator());
+        *_engineState->getMemoryAllocator(), *_engineState->getDevice());
   }
 }
 
@@ -381,13 +376,15 @@ void LightManager::_updatePointBuffers(int currentFrame) {
   const int pointNumber = static_cast<int>(_pointLights.size());
   if (!_pointLights.empty()) {
     int offset = 0;
-    std::memcpy(static_cast<std::byte*>(_lightPointSSBO[currentFrame]->getAllocationInfo().pMappedData) + (offset),
-                &pointNumber, static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightPointSSBO[currentFrame],
+                                                std::as_bytes(std::span(&pointNumber, 1)), (offset));
     offset += sizeof(glm::vec4);
     for (int i = 0; i < _pointLights.size(); i++) {
       // we pass inverse bind matrices to shader via SSBO
-      std::memcpy(static_cast<std::byte*>(_lightPointSSBO[currentFrame]->getAllocationInfo().pMappedData) + (offset),
-                  _pointLights[i]->getData(), static_cast<std::size_t>(_pointLights[i]->getSize()));
+      _engineState->getResourceUploader()->upload(*_lightPointSSBO[currentFrame],
+                                                  std::span(static_cast<const std::byte*>(_pointLights[i]->getData()),
+                                                            static_cast<std::size_t>(_pointLights[i]->getSize())),
+                                                  (offset));
       offset += _pointLights[i]->getSize();
     }
   }
@@ -400,13 +397,11 @@ void LightManager::_updatePointBuffers(int currentFrame) {
       pointVP.push_back(viewProjection);
     }
     int offset = 0;
-    std::memcpy(static_cast<std::byte*>(_lightPointSSBOViewProjection[currentFrame]->getAllocationInfo().pMappedData) +
-                    (offset),
-                &pointNumber, static_cast<std::size_t>(sizeof(glm::vec4)));
+    _engineState->getResourceUploader()->upload(*_lightPointSSBOViewProjection[currentFrame],
+                                                std::as_bytes(std::span(&pointNumber, 1)), (offset));
     offset += sizeof(glm::vec4);
-    std::memcpy(static_cast<std::byte*>(_lightPointSSBOViewProjection[currentFrame]->getAllocationInfo().pMappedData) +
-                    (offset),
-                pointVP.data(), static_cast<std::size_t>(pointVP.size() * sizeof(glm::mat4)));
+    _engineState->getResourceUploader()->upload(*_lightPointSSBOViewProjection[currentFrame],
+                                                std::as_bytes(std::span(pointVP)), (offset));
   }
 }
 
@@ -434,8 +429,7 @@ void LightManager::_updateShadowParametersBuffer(int currentFrame) {
               sizeof(shadowParameters.algorithmDirectional));
   offset += sizeof(shadowParameters.algorithmDirectional);
   std::memcpy(buffer.data() + offset, &shadowParameters.algorithmPoint, sizeof(shadowParameters.algorithmPoint));
-  std::memcpy(static_cast<std::byte*>(_shadowParametersBuffer[currentFrame]->getAllocationInfo().pMappedData),
-              buffer.data(), static_cast<std::size_t>(_shadowParametersBuffer[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_shadowParametersBuffer[currentFrame], std::as_bytes(std::span(buffer)));
 }
 
 std::shared_ptr<PointLight> LightManager::createPointLight() {
@@ -647,39 +641,5 @@ void LightManager::draw(int currentFrame, const RenderGraph::CommandBuffer& comm
     // changes when shadows/lights are changed
     _updateShadowParametersBuffer(currentFrame);
     _setLightDescriptors(currentFrame, commandBuffer);
-  }
-}
-
-void LightManager::update(int currentFrame, const RenderGraph::CommandBuffer& commandBuffer) {
-  std::unique_lock<std::mutex> accessLock(_accessMutex);
-  for (const auto& pointShadow : _pointShadows) {
-    if (!pointShadow) continue;
-    const auto& image = pointShadow->getShadowMapCubemap().at(currentFrame)->getTexture()->getImageView().getImage();
-    const VkImageMemoryBarrier2 barrier{
-        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = image.getImage(),
-        .subresourceRange =
-            {
-                .aspectMask = image.getAspectMask(),
-                .baseMipLevel = 0,
-                .levelCount = static_cast<uint32_t>(image.getMipMapNumber()),
-                .baseArrayLayer = 0,
-                .layerCount = static_cast<uint32_t>(image.getLayerNumber()),
-            },
-    };
-    const VkDependencyInfo dependencyInfo{
-        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-        .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &barrier,
-    };
-    vkCmdPipelineBarrier2(commandBuffer.getCommandBuffer(), &dependencyInfo);
   }
 }

@@ -9,8 +9,8 @@
 #include "Graphic/Material.h"
 
 void Material::_updateAlphaCutoffDescriptors(int currentFrame) {
-  std::memcpy(static_cast<std::byte*>(_uniformBufferAlphaCutoff[currentFrame]->getAllocationInfo().pMappedData),
-              &_alphaCutoff, static_cast<std::size_t>(_uniformBufferAlphaCutoff[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_uniformBufferAlphaCutoff[currentFrame],
+                                              std::as_bytes(std::span(&_alphaCutoff, 1)));
 }
 
 void Material::_updateDescriptor(int currentFrame,
@@ -54,7 +54,7 @@ Material::Material(std::shared_ptr<EngineState> engineState) {
     _uniformBufferAlphaCutoff[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(AlphaCutoff), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *engineState->getMemoryAllocator());
+        *engineState->getMemoryAllocator(), *engineState->getDevice());
   _changedAlpha.resize(_engineState->getSettings()->getMaxFramesInFlight(), false);
 }
 
@@ -92,7 +92,7 @@ MaterialPBR::MaterialPBR(MaterialTarget target, std::shared_ptr<EngineState> eng
     _uniformBufferCoefficients[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(Coefficients), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *engineState->getMemoryAllocator());
+        *engineState->getMemoryAllocator(), *engineState->getDevice());
   _changedTextures[MaterialTexture::COLOR].resize(_engineState->getSettings()->getMaxFramesInFlight(), false);
   _changedTextures[MaterialTexture::NORMAL].resize(_engineState->getSettings()->getMaxFramesInFlight(), false);
   _changedTextures[MaterialTexture::METALLIC].resize(_engineState->getSettings()->getMaxFramesInFlight(), false);
@@ -110,8 +110,8 @@ MaterialPBR::MaterialPBR(MaterialTarget target, std::shared_ptr<EngineState> eng
 }
 
 void MaterialPBR::_updateCoefficientBuffer(int currentFrame) {
-  std::memcpy(static_cast<std::byte*>(_uniformBufferCoefficients[currentFrame]->getAllocationInfo().pMappedData),
-              &_coefficients, static_cast<std::size_t>(_uniformBufferCoefficients[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_uniformBufferCoefficients[currentFrame],
+                                              std::as_bytes(std::span(&_coefficients, 1)));
 }
 
 const std::vector<std::shared_ptr<RenderGraph::Texture>> MaterialPBR::getBaseColor() {
@@ -240,7 +240,7 @@ MaterialPhong::MaterialPhong(MaterialTarget target, std::shared_ptr<EngineState>
     _uniformBufferCoefficients[i] = std::make_shared<RenderGraph::Buffer>(
         sizeof(Coefficients), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT,
-        *engineState->getMemoryAllocator());
+        *engineState->getMemoryAllocator(), *engineState->getDevice());
   _changedTextures[MaterialTexture::COLOR].resize(_engineState->getSettings()->getMaxFramesInFlight(), false);
   _changedTextures[MaterialTexture::NORMAL].resize(_engineState->getSettings()->getMaxFramesInFlight(), false);
   _changedTextures[MaterialTexture::SPECULAR].resize(_engineState->getSettings()->getMaxFramesInFlight(), false);
@@ -252,8 +252,8 @@ MaterialPhong::MaterialPhong(MaterialTarget target, std::shared_ptr<EngineState>
 }
 
 void MaterialPhong::_updateCoefficientBuffer(int currentFrame) {
-  std::memcpy(static_cast<std::byte*>(_uniformBufferCoefficients[currentFrame]->getAllocationInfo().pMappedData),
-              &_coefficients, static_cast<std::size_t>(_uniformBufferCoefficients[currentFrame]->getSize()));
+  _engineState->getResourceUploader()->upload(*_uniformBufferCoefficients[currentFrame],
+                                              std::as_bytes(std::span(&_coefficients, 1)));
 }
 
 const std::vector<std::shared_ptr<RenderGraph::Texture>> MaterialPhong::getBaseColor() {
